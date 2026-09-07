@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# 仮想環境
+.venv/
+venv/
+env/
+
+# テスト・型チェックのキャッシュ
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 生成物（実行すれば作り直せる）
+out/
+*.dxf
+*.png
+*.svg
+# READMEに載せる図は例外
+!docs/*.png
+
+# 用途地域データ（各自で配置する。数十MBになるため追跡しない）
+web/data/*.geojson
+web/data/*.json
+
+# 環境変数・資格情報
+.env
+.env.*
+!.env.example
+
+# エディタ・ツールのローカル設定
+.claude/
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

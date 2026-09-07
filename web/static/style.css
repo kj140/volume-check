@@ -1,0 +1,136 @@
+/* 設計事務所の企画担当向け。情報密度を優先し、装飾は最小限にする。 */
+:root {
+  --bg: #f1f5f9;
+  --panel: #ffffff;
+  --line: #cbd5e1;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #1d4ed8;
+  --warn: #b45309;
+  --danger: #b91c1c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.55 system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+}
+
+header {
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+header h1 { margin: 0; font-size: 16px; }
+.disclaimer { margin: 3px 0 0; font-size: 11px; color: var(--warn); }
+
+main {
+  display: grid;
+  grid-template-columns: minmax(380px, 1fr) minmax(420px, 1.15fr);
+  gap: 12px;
+  padding: 12px;
+  align-items: start;
+}
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } }
+
+.pane { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.block {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.block h2 { margin: 0 0 8px; font-size: 13px; letter-spacing: .04em; }
+details.block > summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+details.block > div { margin-top: 8px; }
+
+.block-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.block-head h2 { margin: 0; }
+.search { display: flex; gap: 6px; flex: 1; min-width: 220px; }
+.search input { flex: 1; }
+
+#map { height: 340px; border: 1px solid var(--line); border-radius: 4px; }
+.map-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 0 0 10px;
+  padding: 8px 10px 10px;
+}
+legend { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.grid .span2 { grid-column: 1 / -1; }
+
+label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+label small { color: var(--muted); font-size: 11px; font-weight: normal; }
+
+input, select, button {
+  font: inherit;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #fff;
+  color: inherit;
+}
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+button { cursor: pointer; background: #f8fafc; }
+button:hover:not(:disabled) { background: #e2e8f0; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover:not(:disabled) { background: #1e40af; }
+button.primary.active { background: var(--warn); border-color: var(--warn); }
+button.big { padding: 8px 18px; font-weight: 600; }
+
+.hint { margin: 6px 0 0; font-size: 11px; color: var(--muted); }
+.badge {
+  font-size: 10px; font-weight: normal; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; margin-left: 6px;
+}
+
+.svg-wrap { overflow-x: auto; }
+.svg-wrap svg { display: block; }
+
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }
+.summary div { border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; }
+.summary dt { font-size: 11px; color: var(--muted); margin: 0; }
+.summary dd { margin: 1px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.summary dd small { font-size: 11px; color: var(--muted); font-weight: normal; }
+
+.stop { margin: 8px 0 0; font-size: 12px; color: var(--warn); }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { border: 1px solid var(--line); padding: 3px 7px; font-size: 12px; text-align: right; white-space: nowrap; }
+th { background: #f8fafc; font-weight: 600; text-align: center; }
+td.l, th.l { text-align: left; }
+tfoot td { font-weight: 600; background: #f8fafc; }
+
+#rules ul { margin: 4px 0 10px; padding-left: 18px; }
+#rules li { font-size: 12px; }
+#rules .basis { color: var(--muted); }
+#rules h3 { margin: 6px 0 2px; font-size: 12px; }
+
+footer {
+  position: sticky; bottom: 0;
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+.error {
+  color: var(--danger);
+  font-size: 12px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: #fef2f2;
+}
+
+.leaflet-container { font: inherit; }

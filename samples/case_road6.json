@@ -1,0 +1,21 @@
+{
+  "site": {
+    "frontage": 20.0,
+    "depth": 30.0,
+    "road_width": 6.0,
+    "road_side": "south"
+  },
+  "zoning": {
+    "use_district": "商業地域",
+    "bcr": 0.8,
+    "far_designated": 6.0,
+    "height_limit_absolute": null
+  },
+  "program": {
+    "floor_height": 4.2,
+    "gf_height": 4.5,
+    "wall_setback": 0.5,
+    "core_ratio": 0.18,
+    "max_floors": 30
+  }
+}

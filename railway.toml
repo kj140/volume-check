@@ -1,0 +1,15 @@
+# Railway のデプロイ設定。
+# 親リポジトリの中に volume_check/ を置いている場合は、Railway のサービス設定で
+# Root Directory を "volume_check" にすること（この railway.toml と Dockerfile が
+# ビルドコンテキストの直下に来るようにする）。
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# ポートは Dockerfile の CMD が環境変数 PORT から読む
+healthcheckPath = "/healthz"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

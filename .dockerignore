@@ -1,0 +1,30 @@
+# 仮想環境・キャッシュ
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# バージョン管理・エディタ設定
+.git/
+.gitignore
+.claude/
+.vscode/
+.idea/
+
+# 出力物（コンテナ内で生成する）
+out/
+*.dxf
+*.png
+*.svg
+
+# テスト（実行時には不要）
+tests/
+
+# その他
+.env
+.DS_Store
+Thumbs.db

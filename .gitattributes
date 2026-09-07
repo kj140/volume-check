@@ -1,0 +1,8 @@
+# Linuxコンテナでビルドするため、テキストはリポジトリ上もチェックアウトもLFに揃える。
+* text=auto eol=lf
+
+# バイナリ
+*.png binary
+*.jpg binary
+*.dxf binary
+*.ttc binary

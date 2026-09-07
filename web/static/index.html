@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ボリュームチェック図</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header>
+  <h1>ボリュームチェック図</h1>
+  <p class="disclaimer">
+    企画検討用の試算です。矩形敷地のみ対応。天空率・日影規制・複数前面道路の緩和・高度地区・地区計画は未考慮。
+    確認申請には使用できません。
+  </p>
+</header>
+
+<main>
+  <!-- ===================== 左：地図と入力 ===================== -->
+  <section class="pane pane-input">
+    <div class="block">
+      <div class="block-head">
+        <h2>1. 敷地</h2>
+        <div class="search">
+          <input id="q" type="search" placeholder="住所・地名で移動（例: 千代田区丸の内1丁目）" autocomplete="off">
+          <button id="btn-search" type="button">検索</button>
+        </div>
+      </div>
+      <div id="map"></div>
+      <div class="map-actions">
+        <button id="btn-draw" type="button" class="primary">敷地の矩形を描く</button>
+        <button id="btn-clear" type="button">クリア</button>
+        <span id="map-hint" class="hint">地図上でドラッグして敷地の矩形を描いてください。</span>
+      </div>
+    </div>
+
+    <form id="form" class="block">
+      <h2>2. 条件</h2>
+
+      <fieldset>
+        <legend>敷地・前面道路</legend>
+        <div class="grid">
+          <label>間口 <small>道路に接する辺 (m)</small>
+            <input name="frontage" type="number" step="0.01" min="0.01" value="20" required>
+          </label>
+          <label>奥行 <small>(m)</small>
+            <input name="depth" type="number" step="0.01" min="0.01" value="30" required>
+          </label>
+          <label>前面道路 幅員 <small>(m)</small>
+            <input name="road_width" type="number" step="0.1" min="0.1" value="12" required>
+          </label>
+          <label>道路の方位
+            <select name="road_side">
+              <option value="south" selected>南</option>
+              <option value="east">東</option>
+              <option value="north">北</option>
+              <option value="west">西</option>
+            </select>
+          </label>
+        </div>
+        <p class="hint" id="site-area-hint"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>法規条件 <span id="zoning-source" class="badge"></span></legend>
+        <div class="grid">
+          <label class="span2">用途地域
+            <select name="use_district"></select>
+          </label>
+          <label>建蔽率 <small>(%)</small>
+            <input name="bcr" type="number" step="1" min="1" max="100" value="80" required>
+          </label>
+          <label>指定容積率 <small>(%)</small>
+            <input name="far_designated" type="number" step="10" min="10" value="600" required>
+          </label>
+          <label class="span2">絶対高さ制限 <small>(m・なければ空欄)</small>
+            <input name="height_limit_absolute" type="number" step="0.1" min="0.1" placeholder="指定なし">
+          </label>
+        </div>
+        <p class="hint" id="zoning-hint"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>計画条件</legend>
+        <div class="grid">
+          <label>1階 階高 <small>(m)</small>
+            <input name="gf_height" type="number" step="0.1" min="0.1" value="4.5" required>
+          </label>
+          <label>基準階 階高 <small>(m)</small>
+            <input name="floor_height" type="number" step="0.1" min="0.1" value="4.2" required>
+          </label>
+          <label>外壁後退 <small>(m)</small>
+            <input name="wall_setback" type="number" step="0.1" min="0" value="0.5" required>
+          </label>
+          <label>コア比率 <small>(%)</small>
+            <input name="core_ratio" type="number" step="1" min="0" max="99" value="18" required>
+          </label>
+          <label>最大階数
+            <input name="max_floors" type="number" step="1" min="1" max="200" value="30" required>
+          </label>
+        </div>
+      </fieldset>
+    </form>
+  </section>
+
+  <!-- ===================== 右：結果 ===================== -->
+  <section class="pane pane-result">
+    <div class="block">
+      <h2>3. 断面図</h2>
+      <div id="svg" class="svg-wrap"><p class="hint">条件を入力すると断面図が表示されます。</p></div>
+    </div>
+
+    <div class="block">
+      <h2>集計</h2>
+      <div id="summary" class="summary"></div>
+      <p id="stop-reason" class="stop"></p>
+    </div>
+
+    <div class="block">
+      <h2>面積表</h2>
+      <div class="table-wrap"><table id="areas"></table></div>
+    </div>
+
+    <details class="block">
+      <summary>適用した規定と根拠値 / 未考慮事項</summary>
+      <div id="rules"></div>
+    </details>
+  </section>
+</main>
+
+<footer>
+  <div id="error" class="error" hidden></div>
+  <button id="btn-dxf" type="button" class="primary big" disabled>DXF をダウンロード</button>
+  <span id="status" class="hint"></span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

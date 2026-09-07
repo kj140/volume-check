@@ -1,0 +1,339 @@
+"""入出力のデータモデル。
+
+単位の約束:
+  ・入力JSONは m（メートル）
+  ・内部計算・DXF出力は mm
+  ・換算は VolumeInput.from_dict() の入口で 1 回だけ行う
+  ・mm の値を持つフィールドには必ず _mm / _mm2 のサフィックスを付ける
+
+座標系（solver / drawer 共通のローカル系）:
+  x = 道路に平行な方向（間口方向）  0 .. frontage
+  y = 道路から敷地奥へ向かう方向    0 .. depth   （y = 0 が道路境界線）
+  z = 高さ                          0 = GL
+  実際の方位への回転は drawer が site.road_side をもとに行う。
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+from constants import M2_TO_MM2, M_TO_MM, UseDistrict
+
+
+class RoadSide(str, Enum):
+    """前面道路がどの方位にあるか。作図の向きの決定にのみ使う。"""
+
+    NORTH = "north"
+    EAST = "east"
+    SOUTH = "south"
+    WEST = "west"
+
+
+class StopReason(str, Enum):
+    """階の積み上げを打ち切った理由。"""
+
+    NO_EFFECTIVE_FOOTPRINT = "有効間口または有効奥行が0以下"
+    BELOW_MIN_FLOOR_AREA = "床面積が最小成立面積未満"
+    FAR_LIMIT_REACHED = "容積率の上限に到達"
+    ABSOLUTE_HEIGHT_LIMIT = "絶対高さ制限に到達"
+    MAX_FLOORS_REACHED = "max_floors に到達"
+
+
+# ---------------------------------------------------------------------------
+# 入力
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SiteInput:
+    """敷地条件。矩形敷地のみ対応。"""
+
+    frontage_mm: float          # 道路に接する辺の長さ
+    depth_mm: float             # 道路と直交する方向の辺の長さ
+    road_width_mm: float        # 前面道路の幅員
+    road_side: RoadSide
+
+    def __post_init__(self) -> None:
+        for name in ("frontage_mm", "depth_mm", "road_width_mm"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"site.{name} は正の値である必要があります")
+
+    @property
+    def area_mm2(self) -> float:
+        return self.frontage_mm * self.depth_mm
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> SiteInput:
+        return cls(
+            frontage_mm=float(d["frontage"]) * M_TO_MM,
+            depth_mm=float(d["depth"]) * M_TO_MM,
+            road_width_mm=float(d["road_width"]) * M_TO_MM,
+            road_side=RoadSide(d["road_side"]),
+        )
+
+
+@dataclass(frozen=True)
+class ZoningInput:
+    """法規条件。bcr / far_designated は倍率表記（0.8 = 80%、6.0 = 600%）。"""
+
+    use_district: UseDistrict
+    bcr: float
+    far_designated: float
+    height_limit_absolute_mm: float | None = None
+
+    def __post_init__(self) -> None:
+        if not 0 < self.bcr <= 1.0:
+            raise ValueError("zoning.bcr は 0 < bcr <= 1.0（倍率表記）で指定してください")
+        if self.far_designated <= 0:
+            raise ValueError("zoning.far_designated は正の値である必要があります")
+        if self.height_limit_absolute_mm is not None and self.height_limit_absolute_mm <= 0:
+            raise ValueError("zoning.height_limit_absolute は正の値または null です")
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ZoningInput:
+        raw_limit = d.get("height_limit_absolute")
+        return cls(
+            use_district=UseDistrict(d["use_district"]),
+            bcr=float(d["bcr"]),
+            far_designated=float(d["far_designated"]),
+            height_limit_absolute_mm=None if raw_limit is None else float(raw_limit) * M_TO_MM,
+        )
+
+
+@dataclass(frozen=True)
+class ProgramInput:
+    """計画条件。"""
+
+    floor_height_mm: float      # 基準階の階高
+    gf_height_mm: float         # 1階の階高
+    wall_setback_mm: float      # 外壁後退（敷地境界から建物外面まで、全周）
+    core_ratio: float           # コア比率。貸室面積 = 床面積 × (1 - core_ratio)
+    max_floors: int
+
+    def __post_init__(self) -> None:
+        for name in ("floor_height_mm", "gf_height_mm"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"program.{name} は正の値である必要があります")
+        if self.wall_setback_mm < 0:
+            raise ValueError("program.wall_setback は 0 以上である必要があります")
+        if not 0 <= self.core_ratio < 1.0:
+            raise ValueError("program.core_ratio は 0 <= core_ratio < 1.0 で指定してください")
+        if self.max_floors < 1:
+            raise ValueError("program.max_floors は 1 以上である必要があります")
+
+    def height_of_floor_mm(self, floor: int) -> float:
+        """floor 階（1始まり）の階高。"""
+        return self.gf_height_mm if floor == 1 else self.floor_height_mm
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ProgramInput:
+        return cls(
+            floor_height_mm=float(d["floor_height"]) * M_TO_MM,
+            gf_height_mm=float(d["gf_height"]) * M_TO_MM,
+            wall_setback_mm=float(d["wall_setback"]) * M_TO_MM,
+            core_ratio=float(d["core_ratio"]),
+            max_floors=int(d["max_floors"]),
+        )
+
+
+@dataclass(frozen=True)
+class VolumeInput:
+    """solve() への入力一式。"""
+
+    site: SiteInput
+    zoning: ZoningInput
+    program: ProgramInput
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> VolumeInput:
+        return cls(
+            site=SiteInput.from_dict(d["site"]),
+            zoning=ZoningInput.from_dict(d["zoning"]),
+            program=ProgramInput.from_dict(d["program"]),
+        )
+
+    @classmethod
+    def from_json_file(cls, path: str | Path) -> VolumeInput:
+        with open(path, encoding="utf-8") as f:
+            return cls.from_dict(json.load(f))
+
+
+# ---------------------------------------------------------------------------
+# 出力
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AppliedRule:
+    """適用した規定とその根拠値。図面の表題欄・注記に出す。"""
+
+    label: str      # 例: "道路斜線 勾配"
+    value: str      # 例: "1.5"
+    basis: str      # 例: "法56条1項1号・別表第三(に)欄2の項"
+
+
+@dataclass(frozen=True)
+class FloorResult:
+    """1 つの階の算定結果。座標はモジュール冒頭のローカル系（mm）。"""
+
+    floor: int                    # 1 始まり
+    level_mm: float               # 床レベル（GL からの高さ）
+    story_height_mm: float        # 階高
+    x_min_mm: float               # 間口方向の建物外面
+    x_max_mm: float
+    y_min_mm: float               # 道路境界線からの距離（建物外面）
+    y_max_mm: float
+    setback_road_mm: float        # 道路斜線による後退量（外壁後退を含まない）
+    setback_neighbor_mm: float    # 隣地斜線による後退量（外壁後退を含まない）
+    governing: str                # この階の形状を決めた規定
+
+    @property
+    def top_mm(self) -> float:
+        """階の天端高さ（GL 基準）。斜線判定はこの高さで行う。"""
+        return self.level_mm + self.story_height_mm
+
+    @property
+    def width_mm(self) -> float:
+        """有効間口。"""
+        return self.x_max_mm - self.x_min_mm
+
+    @property
+    def depth_mm(self) -> float:
+        """有効奥行。"""
+        return self.y_max_mm - self.y_min_mm
+
+    @property
+    def gross_area_mm2(self) -> float:
+        return self.width_mm * self.depth_mm
+
+    @property
+    def far_area_mm2(self) -> float:
+        """容積率対象床面積。
+
+        MVP では床面積と同一とする。エレベーターシャフト・共用部・駐車場等の
+        不算入（法52条3項〜6項、令2条1項4号・3項）は未考慮。
+        """
+        return self.gross_area_mm2
+
+    def rentable_area_mm2(self, core_ratio: float) -> float:
+        return self.gross_area_mm2 * (1.0 - core_ratio)
+
+
+@dataclass
+class VolumeResult:
+    """solve() の戻り値。図面に必要な情報をすべて含む。"""
+
+    input: VolumeInput
+
+    # 容積率
+    far_designated: float                 # 指定容積率（倍率表記）
+    far_by_road: float | None             # 前面道路幅員による上限。12m以上なら None
+    far_effective: float                  # 実効容積率
+    far_road_coefficient: float           # 法52条2項の係数
+
+    # 面積上限
+    site_area_mm2: float
+    max_far_area_mm2: float               # 敷地面積 × 実効容積率
+    max_building_area_mm2: float          # 敷地面積 × BCR
+
+    # 斜線の根拠値
+    road_slant_gradient: float
+    road_slant_applicable_distance_mm: float
+    neighbor_slant_start_mm: float | None  # None は隣地斜線の適用なし
+    neighbor_slant_gradient: float | None
+
+    # 実際に適用した絶対高さ制限。入力が None でも用途地域によっては既定値が入る。
+    height_limit_applied_mm: float | None = None
+
+    # 建蔽率による全階の一律絞り込み
+    bcr_inset_mm: float = 0.0
+
+    floors: list[FloorResult] = field(default_factory=list)
+    stop_reason: StopReason | None = None
+    stop_detail: str = ""
+    applied_rules: list[AppliedRule] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+
+    # --- 集計 ---------------------------------------------------------------
+
+    @property
+    def floor_count(self) -> int:
+        return len(self.floors)
+
+    @property
+    def total_gross_area_mm2(self) -> float:
+        return sum(f.gross_area_mm2 for f in self.floors)
+
+    @property
+    def total_far_area_mm2(self) -> float:
+        return sum(f.far_area_mm2 for f in self.floors)
+
+    @property
+    def total_rentable_area_mm2(self) -> float:
+        ratio = self.input.program.core_ratio
+        return sum(f.rentable_area_mm2(ratio) for f in self.floors)
+
+    @property
+    def building_area_mm2(self) -> float:
+        """建築面積。矩形・上階が下階を超えない前提なので 1 階の面積とする。"""
+        return self.floors[0].gross_area_mm2 if self.floors else 0.0
+
+    @property
+    def max_height_mm(self) -> float:
+        return self.floors[-1].top_mm if self.floors else 0.0
+
+    @property
+    def achieved_far(self) -> float:
+        """達成容積率（倍率表記）。"""
+        return self.total_far_area_mm2 / self.site_area_mm2 if self.site_area_mm2 else 0.0
+
+    @property
+    def achieved_bcr(self) -> float:
+        """達成建蔽率（倍率表記）。"""
+        return self.building_area_mm2 / self.site_area_mm2 if self.site_area_mm2 else 0.0
+
+    # --- 表示用 -------------------------------------------------------------
+
+    def to_dict(self) -> dict[str, Any]:
+        """確認・デバッグ用の要約（面積は m2、長さは m）。"""
+        return {
+            "far": {
+                "designated": self.far_designated,
+                "by_road": self.far_by_road,
+                "effective": self.far_effective,
+                "achieved": round(self.achieved_far, 4),
+            },
+            "site_area_m2": round(self.site_area_mm2 / M2_TO_MM2, 3),
+            "building_area_m2": round(self.building_area_mm2 / M2_TO_MM2, 3),
+            "bcr_achieved": round(self.achieved_bcr, 4),
+            "floor_count": self.floor_count,
+            "max_height_m": round(self.max_height_mm / M_TO_MM, 3),
+            "total_gross_area_m2": round(self.total_gross_area_mm2 / M2_TO_MM2, 3),
+            "total_far_area_m2": round(self.total_far_area_mm2 / M2_TO_MM2, 3),
+            "total_rentable_area_m2": round(self.total_rentable_area_mm2 / M2_TO_MM2, 3),
+            "stop_reason": self.stop_reason.value if self.stop_reason else None,
+            "stop_detail": self.stop_detail,
+            "floors": [
+                {
+                    "floor": f.floor,
+                    "level_m": round(f.level_mm / M_TO_MM, 3),
+                    "story_height_m": round(f.story_height_mm / M_TO_MM, 3),
+                    "top_m": round(f.top_mm / M_TO_MM, 3),
+                    "width_m": round(f.width_mm / M_TO_MM, 3),
+                    "depth_m": round(f.depth_mm / M_TO_MM, 3),
+                    "area_m2": round(f.gross_area_mm2 / M2_TO_MM2, 3),
+                    "setback_road_m": round(f.setback_road_mm / M_TO_MM, 3),
+                    "setback_neighbor_m": round(f.setback_neighbor_mm / M_TO_MM, 3),
+                    "governing": f.governing,
+                }
+                for f in self.floors
+            ],
+            "applied_rules": [
+                {"label": r.label, "value": r.value, "basis": r.basis} for r in self.applied_rules
+            ],
+            "notes": list(self.notes),
+        }
