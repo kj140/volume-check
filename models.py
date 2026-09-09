@@ -7,20 +7,27 @@
   ・mm の値を持つフィールドには必ず _mm / _mm2 のサフィックスを付ける
 
 座標系（solver / drawer 共通のローカル系）:
-  x = 道路に平行な方向（間口方向）  0 .. frontage
-  y = 道路から敷地奥へ向かう方向    0 .. depth   （y = 0 が道路境界線）
+  x = 道路に平行な方向（間口方向）
+  y = 道路から敷地奥へ向かう方向（y = 0 が前面道路の境界線）
   z = 高さ                          0 = GL
-  実際の方位への回転は drawer が site.road_side をもとに行う。
+  図面での方位への回転は north_angle_rad（ローカル座標における北の向き）で行う。
+
+敷地形状:
+  矩形は frontage/depth/road_width/road_side から作る。任意形状は boundary と
+  edges（辺ごとの道路/隣地の別）で与える。どちらの場合も SiteInput.shape が
+  多角形としての敷地（geometry.SiteShape）を持ち、solver はそれだけを見る。
 """
 
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import geometry as G
 from constants import M2_TO_MM2, M_TO_MM, FireZone, UseDistrict
 
 
@@ -82,35 +89,89 @@ class StopReason(str, Enum):
 # ---------------------------------------------------------------------------
 
 
+# ローカル座標における北の向き（+x 軸からの角度・ラジアン）。
+# 前面道路の方位から決まる。道路が南にあれば敷地はその北側に広がるので +y が北。
+_NORTH_ANGLE_BY_ROAD_SIDE: dict[RoadSide, float] = {
+    RoadSide.SOUTH: math.pi / 2,      # +y が北
+    RoadSide.NORTH: -math.pi / 2,     # -y が北
+    RoadSide.EAST: 0.0,               # +x が北
+    RoadSide.WEST: math.pi,           # -x が北
+}
+
+
 @dataclass(frozen=True)
 class SiteInput:
-    """敷地条件。矩形敷地のみ対応。"""
+    """敷地条件。矩形でも任意の単純多角形でも扱える。"""
 
-    frontage_mm: float          # 道路に接する辺の長さ
-    depth_mm: float             # 道路と直交する方向の辺の長さ
-    road_width_mm: float        # 前面道路の幅員
-    road_side: RoadSide
-    # 街区の角にある敷地等で特定行政庁が指定するもの（法53条3項2号）
-    corner_lot: bool = False
-
-    def __post_init__(self) -> None:
-        for name in ("frontage_mm", "depth_mm", "road_width_mm"):
-            if getattr(self, name) <= 0:
-                raise ValueError(f"site.{name} は正の値である必要があります")
+    shape: G.SiteShape           # 多角形としての敷地（solver はこれだけを見る）
+    road_side: RoadSide          # 主要な前面道路の方位（作図の向きに使う）
+    north_angle_rad: float
+    corner_lot: bool = False     # 法53条3項2号の角地指定
+    is_rectangle: bool = True    # 従来の矩形入力から作られたか
 
     @property
     def area_mm2(self) -> float:
-        return self.frontage_mm * self.depth_mm
+        return self.shape.area_mm2
+
+    @property
+    def road_edge(self) -> G.SiteEdge:
+        """容積率の低減と断面の切り口に使う前面道路（最大幅員）。"""
+        edge = self.shape.widest_road
+        if edge is None:
+            raise ValueError("道路に接する辺がありません")
+        return edge
+
+    @property
+    def road_width_mm(self) -> float:
+        return self.road_edge.road_width_mm
+
+    @property
+    def frontage_mm(self) -> float:
+        """間口。前面道路に接する辺の長さ。"""
+        return self.road_edge.length_mm
+
+    @property
+    def depth_mm(self) -> float:
+        """奥行。前面道路の境界線から最も遠い敷地点までの距離。"""
+        _, far = G.projection_range(self.shape.polygon, self.road_edge.angle_rad)
+        near, _ = G.projection_range(self.road_edge.line(), self.road_edge.angle_rad)
+        return far - near
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> SiteInput:
-        return cls(
-            frontage_mm=float(d["frontage"]) * M_TO_MM,
-            depth_mm=float(d["depth"]) * M_TO_MM,
-            road_width_mm=float(d["road_width"]) * M_TO_MM,
-            road_side=RoadSide(d["road_side"]),
-            corner_lot=bool(d.get("corner_lot", False)),
+        road_side = RoadSide(d.get("road_side", RoadSide.SOUTH.value))
+        corner_lot = bool(d.get("corner_lot", False))
+        north = d.get("north_angle")
+        north_rad = (math.radians(float(north)) if north is not None
+                     else _NORTH_ANGLE_BY_ROAD_SIDE[road_side])
+
+        boundary = d.get("boundary")
+        if boundary:
+            points = [(float(x) * M_TO_MM, float(y) * M_TO_MM) for x, y in boundary]
+            raw_edges = d.get("edges")
+            if not raw_edges or len(raw_edges) != len(points):
+                raise ValueError("edges は boundary の頂点数と同じ数だけ必要です")
+            kinds = [
+                (G.EdgeKind(e.get("kind", "neighbor")),
+                 float(e.get("width", 0.0)) * M_TO_MM)
+                for e in raw_edges
+            ]
+            if not any(k is G.EdgeKind.ROAD for k, _ in kinds):
+                raise ValueError("道路に接する辺（kind: road）が1つ以上必要です")
+            shape = G.polygon_site(points, kinds)
+            return cls(shape=shape, road_side=road_side, north_angle_rad=north_rad,
+                       corner_lot=corner_lot, is_rectangle=False)
+
+        for key in ("frontage", "depth", "road_width"):
+            if float(d[key]) <= 0:
+                raise ValueError(f"site.{key} は正の値である必要があります")
+        shape = G.rectangle_site(
+            float(d["frontage"]) * M_TO_MM,
+            float(d["depth"]) * M_TO_MM,
+            float(d["road_width"]) * M_TO_MM,
         )
+        return cls(shape=shape, road_side=road_side, north_angle_rad=north_rad,
+                   corner_lot=corner_lot, is_rectangle=True)
 
 
 @dataclass(frozen=True)
@@ -155,6 +216,8 @@ class ProgramInput:
     # 耐火建築物等（準防火地域では準耐火建築物等を含む）とするか。
     # 建蔽率の緩和（法53条3項1号・6項1号）の判定に使う計画側の選択。
     fireproof: bool = False
+    # 建物の向き。前面道路に平行を 0 とした振り角。None なら道路に平行。
+    building_angle_rad: float | None = None
 
     def __post_init__(self) -> None:
         for name in ("floor_height_mm", "gf_height_mm"):
@@ -180,6 +243,10 @@ class ProgramInput:
             core_ratio=float(d["core_ratio"]),
             max_floors=int(d["max_floors"]),
             fireproof=bool(d.get("fireproof", False)),
+            building_angle_rad=(
+                None if d.get("building_angle") is None
+                else math.radians(float(d["building_angle"]))
+            ),
         )
 
 
@@ -244,6 +311,11 @@ class FloorResult:
     # 外壁後退だけを引いた、制限がかからなかった場合の床面積
     unconstrained_area_mm2: float = 0.0
 
+    # 実際の階の外形（敷地ローカル座標の頂点列）と、その面積。
+    # 矩形とは限らないので x/y の範囲とは別に持つ。
+    outline: tuple[tuple[float, float], ...] = ()
+    area_mm2: float = 0.0
+
     @property
     def constraints(self) -> tuple[Constraint, ...]:
         """この階を削っている規定（増分の大きい順）。"""
@@ -276,7 +348,7 @@ class FloorResult:
 
     @property
     def gross_area_mm2(self) -> float:
-        return self.width_mm * self.depth_mm
+        return self.area_mm2
 
     @property
     def far_area_mm2(self) -> float:
@@ -321,6 +393,10 @@ class VolumeResult:
     bcr_effective: float = 0.0
     bcr_relaxations: list[tuple[str, str]] = field(default_factory=list)
 
+    # 建物の向き（敷地ローカル座標での絶対角）と、建蔽率で絞る前の外形
+    building_angle_rad: float = 0.0
+    footprint: tuple[tuple[float, float], ...] = ()
+
     # 建蔽率による全階の一律絞り込み
     bcr_inset_mm: float = 0.0
 
@@ -351,8 +427,13 @@ class VolumeResult:
 
     @property
     def building_area_mm2(self) -> float:
-        """建築面積。矩形・上階が下階を超えない前提なので 1 階の面積とする。"""
+        """建築面積。上階が下階を超えない前提なので 1 階の面積とする。"""
         return self.floors[0].gross_area_mm2 if self.floors else 0.0
+
+    @property
+    def building_angle_deg(self) -> float:
+        """前面道路に対する建物の振り角[度]。"""
+        return math.degrees(self.building_angle_rad - self.input.site.road_edge.angle_rad)
 
     @property
     def max_height_mm(self) -> float:

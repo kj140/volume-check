@@ -405,13 +405,16 @@ def test_deployment_files_exist_and_are_consistent():
 NS = "{http://www.w3.org/2000/svg}"
 
 
-def _rects(svg: str, cls: str) -> list:
-    return ET.fromstring(svg).findall(f"{NS}rect[@class='{cls}']")
+def _shapes(svg: str, cls: str) -> list:
+    return ET.fromstring(svg).findall(f"{NS}polygon[@class='{cls}']")
 
 
-def _rect_box(el) -> tuple[float, float, float, float]:
-    x, y = float(el.get("x")), float(el.get("y"))
-    return x, y, x + float(el.get("width")), y + float(el.get("height"))
+def _shape_box(el) -> tuple[float, float, float, float]:
+    """polygon の points から (minx, miny, maxx, maxy) を求める。"""
+    pts = [tuple(float(v) for v in pair.split(",")) for pair in el.get("points").split()]
+    xs = [q[0] for q in pts]
+    ys = [q[1] for q in pts]
+    return min(xs), min(ys), max(xs), max(ys)
 
 
 @pytest.mark.parametrize("sample", ["case_road6", "case_road12"])
@@ -422,12 +425,12 @@ def test_site_plan_svg(sample):
     svg = render_site_plan(result)
     root = ET.fromstring(svg)
 
-    assert len(root.findall(f"{NS}rect[@class='site']")) == 1
-    assert len(root.findall(f"{NS}rect[@class='road']")) == 1
-    assert len(root.findall(f"{NS}rect[@class='ghost']")) == 1
+    assert len(root.findall(f"{NS}polygon[@class='site']")) == 1
+    assert len(root.findall(f"{NS}polygon[@class='road']")) == 1
+    assert len(root.findall(f"{NS}polygon[@class='ghost']")) == 1
     # 1階（塗り）と最上階（破線）
-    assert len(root.findall(f"{NS}rect[@class='floor']")) == 1
-    assert len(root.findall(f"{NS}rect[@class='floor-top']")) == 1
+    assert len(root.findall(f"{NS}polygon[@class='floor']")) == 1
+    assert len(root.findall(f"{NS}polygon[@class='floor-top']")) == 1
 
     texts = [t.text for t in root.iter(f"{NS}text")]
     assert "N" in texts, "方位記号がない"
@@ -443,9 +446,9 @@ def test_site_plan_nests_the_building_inside_the_site():
     from web.svg_plan import render_site_plan
 
     svg = render_site_plan(solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json")))
-    site = _rect_box(_rects(svg, "site")[0])
-    f1 = _rect_box(_rects(svg, "floor")[0])
-    top = _rect_box(_rects(svg, "floor-top")[0])
+    site = _shape_box(_shapes(svg, "site")[0])
+    f1 = _shape_box(_shapes(svg, "floor")[0])
+    top = _shape_box(_shapes(svg, "floor-top")[0])
 
     assert site[0] <= f1[0] and site[1] <= f1[1]
     assert f1[2] <= site[2] and f1[3] <= site[3]
@@ -462,8 +465,8 @@ def test_site_plan_puts_the_road_on_the_given_side(road_side, expected):
     body = payload()
     body["site"]["road_side"] = road_side
     svg = render_site_plan(solve(VolumeInput.from_dict(body)))
-    sx0, sy0, sx1, sy1 = _rect_box(_rects(svg, "site")[0])
-    rx0, ry0, rx1, ry1 = _rect_box(_rects(svg, "road")[0])
+    sx0, sy0, sx1, sy1 = _shape_box(_shapes(svg, "site")[0])
+    rx0, ry0, rx1, ry1 = _shape_box(_shapes(svg, "road")[0])
 
     # SVG は Y が下向き
     if expected == "below":
@@ -486,7 +489,7 @@ def test_floor_plans_svg(sample):
 
     # 階ごとに 敷地・ゴースト・外形 が1組ずつ
     def count(cls: str) -> int:
-        return sum(1 for e in root.iter(f"{NS}rect") if e.get("class") == cls)
+        return sum(1 for e in root.iter(f"{NS}polygon") if e.get("class") == cls)
 
     assert count("floor") == result.floor_count
     assert count("site") == result.floor_count

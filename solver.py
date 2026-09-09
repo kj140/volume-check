@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 
 import constants as C
+import geometry as G
 from models import (
     NO_CONSTRAINT_LABEL,
     AppliedRule,
@@ -102,20 +103,43 @@ def solve(inp: VolumeInput) -> VolumeResult:
     )
     _record_applied_rules(result)
 
-    # --- 6) 建蔽率による全階一律の絞り込み量を先に求める ----------------------
-    # 仕様の手順では最後に絞るが、絞ると容積対象床面積が減って階数条件が変わるため、
-    # 1階の形状だけを先に試算して絞り込み量 t を確定させ、それを全階に適用する。
-    # 「全階を等しく内側に絞る」という結果は同じで、容積の打ち切り判定が正しくなる。
+    # --- 建物の向きと外形 -----------------------------------------------------
+    # 既定は前面道路に平行。program.building_angle で明示的に回すこともできる。
+    road_angle = site.road_edge.angle_rad
+    angle = (road_angle if program.building_angle_rad is None
+             else road_angle + program.building_angle_rad)
+    result.building_angle_rad = angle
+
     first_top_mm = program.height_of_floor_mm(1)
-    sb_road_1, sb_neighbor_1, _ = _setbacks(
-        first_top_mm, site.road_width_mm, road_gradient, applicable_distance_mm,
-        neighbor_start_mm, neighbor_gradient,
+    region_1f = G.buildable_region(
+        site.shape, _setbacks(site, first_top_mm, road_gradient,
+                              applicable_distance_mm, neighbor_start_mm, neighbor_gradient),
+        program.wall_setback_mm,
     )
-    w1, d1 = _footprint_size(site, program, sb_road_1, sb_neighbor_1, inset_mm=0.0)
-    bcr_inset_mm = _bcr_inset(w1, d1, max_building_area_mm2)
+    footprint = G.largest_inscribed_rectangle(region_1f, angle) or region_1f
+    result.footprint = G.outline(footprint)
+
+    # --- 建蔽率による全階一律の絞り込み ----------------------------------------
+    # 仕様の手順では最後に絞るが、絞ると容積対象床面積が減って階数条件が変わるため、
+    # 1階の形状だけを先に試算して絞り込み量を確定させ、それを全階に適用する。
+    # 絞り込みは「全周を等しく内側に寄せる」＝外壁後退を増やすのと同じ扱いにする。
+    def _area_at(inset_mm: float, top_mm: float = first_top_mm,
+                 setbacks: list[float] | None = None) -> float:
+        region = G.buildable_region(
+            site.shape,
+            setbacks if setbacks is not None else _setbacks(
+                site, top_mm, road_gradient, applicable_distance_mm,
+                neighbor_start_mm, neighbor_gradient),
+            program.wall_setback_mm + inset_mm,
+        )
+        return G.area_mm2(region.intersection(footprint))
+
+    bcr_inset_mm = G.inset_for_area(
+        _area_at, max_building_area_mm2, math.sqrt(site.area_mm2) / 2.0 + 1.0
+    )
     result.bcr_inset_mm = bcr_inset_mm
 
-    # --- 4) 5) 1階から順に積み上げる -----------------------------------------
+    # --- 1階から順に積み上げる -------------------------------------------------
     level_mm = 0.0
     cumulative_far_mm2 = 0.0
     min_area_mm2 = C.MIN_VIABLE_FLOOR_AREA_M2 * C.M2_TO_MM2
@@ -133,21 +157,19 @@ def solve(inp: VolumeInput) -> VolumeResult:
             )
             break
 
-        sb_road, sb_neighbor, road_capped = _setbacks(
-            top_mm, site.road_width_mm, road_gradient, applicable_distance_mm,
-            neighbor_start_mm, neighbor_gradient,
+        setbacks = _setbacks(site, top_mm, road_gradient, applicable_distance_mm,
+                             neighbor_start_mm, neighbor_gradient)
+        region = G.buildable_region(
+            site.shape, setbacks, program.wall_setback_mm + bcr_inset_mm
         )
-        width_mm, depth_mm = _footprint_size(site, program, sb_road, sb_neighbor, bcr_inset_mm)
+        shape = region.intersection(footprint)
+        area_mm2 = G.area_mm2(shape)
 
-        if width_mm <= _LENGTH_EPS_MM or depth_mm <= _LENGTH_EPS_MM:
+        if area_mm2 <= _AREA_EPS_MM2:
             result.stop_reason = StopReason.NO_EFFECTIVE_FOOTPRINT
-            result.stop_detail = (
-                f"{floor}階で有効間口 {width_mm / C.M_TO_MM:.2f}m / "
-                f"有効奥行 {depth_mm / C.M_TO_MM:.2f}m となり成立しない"
-            )
+            result.stop_detail = f"{floor}階で建築可能な範囲がなくなる"
             break
 
-        area_mm2 = width_mm * depth_mm
         if area_mm2 < min_area_mm2 - _AREA_EPS_MM2:
             result.stop_reason = StopReason.BELOW_MIN_FLOOR_AREA
             result.stop_detail = (
@@ -168,15 +190,14 @@ def solve(inp: VolumeInput) -> VolumeResult:
 
         result.floors.append(
             _make_floor(
-                floor=floor,
-                level_mm=level_mm,
-                story_mm=story_mm,
-                site=site,
-                program=program,
-                sb_road=sb_road,
-                sb_neighbor=sb_neighbor,
-                inset_mm=bcr_inset_mm,
-                road_capped=road_capped,
+                floor=floor, level_mm=level_mm, story_mm=story_mm,
+                site=site, shape=shape, setbacks=setbacks,
+                impacts=_impacts(site, program, footprint, setbacks, bcr_inset_mm,
+                                 area_mm2, _area_at, top_mm),
+                road_capped=_road_capped(site, top_mm, road_gradient,
+                                         applicable_distance_mm),
+                unconstrained_area_mm2=_area_at(
+                    0.0, setbacks=[0.0] * len(site.shape.edges)),
             )
         )
         cumulative_far_mm2 += area_mm2
@@ -198,93 +219,83 @@ def solve(inp: VolumeInput) -> VolumeResult:
 # ---------------------------------------------------------------------------
 
 
-def _setbacks(
-    top_mm: float,
-    road_width_mm: float,
-    road_gradient: float,
-    applicable_distance_mm: float,
-    neighbor_start_mm: float | None,
-    neighbor_gradient: float | None,
-) -> tuple[float, float, bool]:
-    """天端高さ top_mm における道路側・隣地側の後退量を返す。
-
-    戻り値 = (道路側後退量, 隣地側後退量, 道路斜線が適用距離で頭打ちになったか)
-    いずれも外壁後退を含まない、斜線制限だけによる後退量。
-    """
-    # 道路斜線（法56条1項1号）
-    required_from_opposite_mm = top_mm / road_gradient
-    road_capped = required_from_opposite_mm > applicable_distance_mm
-    if road_capped:
+def _road_setback(top_mm: float, road_width_mm: float, gradient: float,
+                  applicable_distance_mm: float) -> tuple[float, bool]:
+    """道路斜線による後退量と、適用距離で頭打ちになったか（法56条1項1号）。"""
+    required = top_mm / gradient
+    capped = required > applicable_distance_mm
+    if capped:
         # 適用距離を超える範囲には道路斜線制限がかからない
-        required_from_opposite_mm = applicable_distance_mm
-    sb_road = max(0.0, required_from_opposite_mm - road_width_mm)
-
-    # 隣地斜線（法56条1項2号）。適用のない用途地域は 0。
-    if neighbor_start_mm is None or neighbor_gradient is None:
-        sb_neighbor = 0.0
-    else:
-        sb_neighbor = max(0.0, (top_mm - neighbor_start_mm) / neighbor_gradient)
-
-    return sb_road, sb_neighbor, road_capped
+        required = applicable_distance_mm
+    return max(0.0, required - road_width_mm), capped
 
 
-def _footprint_size(
-    site, program, sb_road: float, sb_neighbor: float, inset_mm: float
-) -> tuple[float, float]:
-    """有効間口・有効奥行を返す。
-
-    間口方向は左右とも隣地。奥行方向は道路側が道路斜線、反対側が隣地斜線。
-    """
-    width = site.frontage_mm - 2 * sb_neighbor - 2 * program.wall_setback_mm - 2 * inset_mm
-    depth = site.depth_mm - sb_road - sb_neighbor - 2 * program.wall_setback_mm - 2 * inset_mm
-    return width, depth
-
-
-def _bcr_inset(width_mm: float, depth_mm: float, max_building_area_mm2: float) -> float:
-    """1階が建蔽率上限を超える場合に全階へ一律適用する内側への絞り込み量[mm]。
-
-    (w - 2t)(d - 2t) = A を満たす最小の t を解く。超えていなければ 0。
-    """
-    if width_mm <= 0 or depth_mm <= 0:
+def _neighbor_setback(top_mm: float, start_mm: float | None,
+                      gradient: float | None) -> float:
+    """隣地斜線による後退量（法56条1項2号）。適用のない用途地域は 0。"""
+    if start_mm is None or gradient is None:
         return 0.0
-    area = width_mm * depth_mm
-    if area <= max_building_area_mm2 + _AREA_EPS_MM2:
-        return 0.0
-    s = width_mm + depth_mm
-    disc = s * s - 4.0 * (area - max_building_area_mm2)
-    if disc < 0:
-        # 目標面積が小さすぎて矩形を保てない。片側が潰れる直前まで絞る。
-        return min(width_mm, depth_mm) / 2.0
-    return (s - math.sqrt(disc)) / 4.0
+    return max(0.0, (top_mm - start_mm) / gradient)
 
 
-def _area(site, program, sb_road: float, sb_neighbor: float, inset_mm: float) -> float:
-    """後退量の組み合わせに対する床面積。潰れる場合は 0。"""
-    w, d = _footprint_size(site, program, sb_road, sb_neighbor, inset_mm)
-    return w * d if w > 0 and d > 0 else 0.0
+def _setbacks(site, top_mm: float, road_gradient: float,
+              applicable_distance_mm: float, neighbor_start_mm: float | None,
+              neighbor_gradient: float | None) -> list[float]:
+    """天端高さ top_mm における辺ごとの後退量。
+
+    道路に接する辺はその辺の幅員で、それ以外の辺は隣地斜線で決まる。
+    複数の道路に接していれば、それぞれの幅員で個別に判定される。
+    """
+    out: list[float] = []
+    for edge in site.shape.edges:
+        if edge.kind is G.EdgeKind.ROAD:
+            setback, _ = _road_setback(top_mm, edge.road_width_mm, road_gradient,
+                                       applicable_distance_mm)
+            out.append(setback)
+        else:
+            out.append(_neighbor_setback(top_mm, neighbor_start_mm, neighbor_gradient))
+    return out
 
 
-def _impacts(site, program, sb_road: float, sb_neighbor: float,
-             inset_mm: float) -> tuple[ConstraintImpact, ...]:
+def _road_capped(site, top_mm: float, gradient: float,
+                 applicable_distance_mm: float) -> bool:
+    """最大幅員の前面道路で、道路斜線が適用距離で頭打ちになっているか。"""
+    return _road_setback(top_mm, site.road_width_mm, gradient,
+                         applicable_distance_mm)[1]
+
+
+def _impacts(site, program, footprint, setbacks: list[float], inset_mm: float,
+             actual_area_mm2: float, area_at, top_mm: float
+             ) -> tuple[ConstraintImpact, ...]:
     """その階を削っている規定ごとの限界寄与を求める。
 
     「その規定だけを外したら床面積がどれだけ増えるか」を規定ごとに計算する。
     規定どうしは掛け算で効くので合計は実際の減少量と一致しないが、
     「この制限が外れたら何m2増えるか」という設計上の判断には直接使える。
     """
-    actual = _area(site, program, sb_road, sb_neighbor, inset_mm)
+    kinds = [e.kind for e in site.shape.edges]
+    road_sb = max((sb for sb, k in zip(setbacks, kinds)
+                   if k is G.EdgeKind.ROAD), default=0.0)
+    nb_sb = max((sb for sb, k in zip(setbacks, kinds)
+                 if k is G.EdgeKind.NEIGHBOR), default=0.0)
+
+    without_road = [0.0 if k is G.EdgeKind.ROAD else sb
+                    for sb, k in zip(setbacks, kinds)]
+    without_nb = [sb if k is G.EdgeKind.ROAD else 0.0
+                  for sb, k in zip(setbacks, kinds)]
+
     candidates = (
-        (Constraint.ROAD_SLANT, sb_road,
-         _area(site, program, 0.0, sb_neighbor, inset_mm)),
-        (Constraint.NEIGHBOR_SLANT, sb_neighbor,
-         _area(site, program, sb_road, 0.0, inset_mm)),
-        (Constraint.BCR, inset_mm,
-         _area(site, program, sb_road, sb_neighbor, 0.0)),
+        (Constraint.ROAD_SLANT, road_sb,
+         area_at(inset_mm, top_mm, without_road)),
+        (Constraint.NEIGHBOR_SLANT, nb_sb,
+         area_at(inset_mm, top_mm, without_nb)),
+        (Constraint.BCR, inset_mm, area_at(0.0, top_mm, setbacks)),
     )
     impacts = [
-        ConstraintImpact(constraint=c, area_gain_mm2=relaxed - actual, setback_mm=amount)
+        ConstraintImpact(constraint=c, area_gain_mm2=relaxed - actual_area_mm2,
+                         setback_mm=amount)
         for c, amount, relaxed in candidates
-        if amount > _LENGTH_EPS_MM and relaxed - actual > _AREA_EPS_MM2
+        if amount > _LENGTH_EPS_MM and relaxed - actual_area_mm2 > _AREA_EPS_MM2
     ]
     impacts.sort(key=lambda i: i.area_gain_mm2, reverse=True)
     return tuple(impacts)
@@ -296,39 +307,58 @@ def _make_floor(
     level_mm: float,
     story_mm: float,
     site,
-    program,
-    sb_road: float,
-    sb_neighbor: float,
-    inset_mm: float,
+    shape,
+    setbacks: list[float],
+    impacts: tuple[ConstraintImpact, ...],
     road_capped: bool,
+    unconstrained_area_mm2: float,
 ) -> FloorResult:
-    edge = program.wall_setback_mm + inset_mm
-    impacts = _impacts(site, program, sb_road, sb_neighbor, inset_mm)
+    """1 階分の結果を組み立てる。
+
+    x/y の範囲は前面道路を基準にした向きへ射影したもの。
+    x = 道路に平行な方向、y = 道路から敷地奥へ向かう方向（断面図の切り口）。
+    """
+    road_angle = site.road_edge.angle_rad
+    x_min, x_max = G.projection_range(shape, road_angle + math.pi / 2)
+    y_min, y_max = G.projection_range(shape, road_angle)
+    road_base, _ = G.projection_range(site.road_edge.line(), road_angle)
+    x_base, _ = G.projection_range(site.shape.polygon, road_angle + math.pi / 2)
+
+    kinds = [e.kind for e in site.shape.edges]
+    road_sb = max((sb for sb, k in zip(setbacks, kinds)
+                   if k is G.EdgeKind.ROAD), default=0.0)
+    nb_sb = max((sb for sb, k in zip(setbacks, kinds)
+                 if k is G.EdgeKind.NEIGHBOR), default=0.0)
+
     return FloorResult(
         floor=floor,
         level_mm=level_mm,
         story_height_mm=story_mm,
-        x_min_mm=edge + sb_neighbor,
-        x_max_mm=site.frontage_mm - edge - sb_neighbor,
-        y_min_mm=edge + sb_road,
-        y_max_mm=site.depth_mm - edge - sb_neighbor,
-        setback_road_mm=sb_road,
-        setback_neighbor_mm=sb_neighbor,
-        governing=_governing(sb_road, sb_neighbor, inset_mm, road_capped),
+        x_min_mm=x_min - x_base,
+        x_max_mm=x_max - x_base,
+        y_min_mm=y_min - road_base,
+        y_max_mm=y_max - road_base,
+        setback_road_mm=road_sb,
+        setback_neighbor_mm=nb_sb,
+        governing=_governing(road_sb, nb_sb, impacts, road_capped),
         impacts=impacts,
         road_slant_capped=road_capped,
-        # 斜線も建蔽率もかからず、外壁後退だけを引いた場合の床面積
-        unconstrained_area_mm2=_area(site, program, 0.0, 0.0, 0.0),
+        unconstrained_area_mm2=unconstrained_area_mm2,
+        outline=G.outline(shape),
+        area_mm2=G.area_mm2(shape),
     )
 
 
-def _governing(sb_road: float, sb_neighbor: float, inset_mm: float, road_capped: bool) -> str:
+def _governing(sb_road: float, sb_neighbor: float,
+               impacts: tuple[ConstraintImpact, ...], road_capped: bool) -> str:
+    """その階の形状を決めた規定を、表示用の文字列にまとめる。"""
+    listed = {i.constraint for i in impacts}
     parts: list[str] = []
-    if sb_road > _LENGTH_EPS_MM:
+    if Constraint.ROAD_SLANT in listed:
         parts.append("道路斜線(適用距離で頭打ち)" if road_capped else "道路斜線")
-    if sb_neighbor > _LENGTH_EPS_MM:
+    if Constraint.NEIGHBOR_SLANT in listed:
         parts.append("隣地斜線")
-    if inset_mm > _LENGTH_EPS_MM:
+    if Constraint.BCR in listed:
         parts.append("建蔽率")
     if not parts:
         return NO_CONSTRAINT_LABEL

@@ -268,9 +268,10 @@ def test_draw_handles_all_road_sides(road_side, tmp_path):
     assert not Auditor(doc).run()
 
     # 1階外形ラベルが 1 階の外形内にあること
-    frame = P.Frame(result.input.site.road_side, 0.0, 0.0, _plan_local_bbox(result))
+    frame = P.Frame(result.input.site.north_angle_rad, 0.0, 0.0,
+                    _plan_local_bbox(result))
     f1 = result.floors[0]
-    bx0, by0, bx1, by1 = frame.bbox(f1.x_min_mm, f1.y_min_mm, f1.x_max_mm, f1.y_max_mm)
+    bx0, by0, bx1, by1 = frame.bbox(f1.outline)
     label = next(t for t in doc.modelspace().query("TEXT") if t.dxf.text.startswith("1F 外形"))
     # draw() は配置図をシート内へ平行移動するので、相対位置で比較する
     site_pl = min(
@@ -279,9 +280,8 @@ def test_draw_handles_all_road_sides(road_side, tmp_path):
     )
     sx0 = min(p[0] for p in site_pl.get_points("xy"))
     sy0 = min(p[1] for p in site_pl.get_points("xy"))
-    ref_x0, ref_y0, _, _ = frame.bbox(0.0, 0.0,
-                                      result.input.site.frontage_mm,
-                                      result.input.site.depth_mm)
+    ref_x0, ref_y0, _, _ = frame.bbox(
+        tuple(result.input.site.shape.polygon.exterior.coords)[:-1])
     dx, dy = sx0 - ref_x0, sy0 - ref_y0
     lx, ly = label.dxf.insert.x - dx, label.dxf.insert.y - dy
     assert bx0 <= lx <= bx1, f"{road_side}: 1F ラベルが外形の外(x)"

@@ -1,0 +1,17 @@
+{
+  "site": {
+    "boundary": [[0, 0], [26, 0], [30, 16], [12, 24], [0, 14]],
+    "edges": [
+      { "kind": "road", "width": 8.0 },
+      { "kind": "neighbor" },
+      { "kind": "neighbor" },
+      { "kind": "neighbor" },
+      { "kind": "neighbor" }
+    ],
+    "road_side": "south"
+  },
+  "zoning": { "use_district": "商業地域", "bcr": 0.8,
+              "far_designated": 4.0, "height_limit_absolute": null },
+  "program": { "floor_height": 4.0, "gf_height": 4.5, "wall_setback": 0.5,
+               "core_ratio": 0.18, "max_floors": 20 }
+}

@@ -9,11 +9,12 @@ SVG は Y 軸が下向きなので、Frame（Y 上向き）の結果を最後に
 
 from __future__ import annotations
 
+import math
 from xml.sax.saxutils import escape
 
 import constants as C
 import plan as P
-from models import RoadSide, VolumeResult
+from models import VolumeResult
 
 from .svg_section import CONSTRAINT_COLORS, NO_CONSTRAINT_LEGEND
 
@@ -37,12 +38,6 @@ COLORS = {
     "muted": "#64748b",
 }
 
-ROAD_SIDE_LABEL = {
-    RoadSide.NORTH: "北", RoadSide.EAST: "東",
-    RoadSide.SOUTH: "南", RoadSide.WEST: "西",
-}
-
-
 def _esc(s: object) -> str:
     return escape(str(s))
 
@@ -61,17 +56,23 @@ class _Canvas:
         fx, fy = self.frame(x_mm, y_mm)
         return (fx * self.scale, self.height - fy * self.scale)
 
-    def rect_local(self, x0, y0, x1, y1, fill, stroke, width=1.2, dash="", cls=""):
-        pts = [self.pt(x, y) for x in (x0, x1) for y in (y0, y1)]
-        xs = [p[0] for p in pts]
-        ys = [p[1] for p in pts]
+    def polygon_local(self, outline, fill, stroke, width=1.2, dash="", cls=""):
+        """敷地ローカル座標の頂点列を多角形として描く。"""
+        if not outline:
+            return
+        pts = " ".join(f"{x:.2f},{y:.2f}" for x, y in (self.pt(*q) for q in outline))
         d = f' stroke-dasharray="{dash}"' if dash else ""
         k = f' class="{cls}"' if cls else ""
         self.parts.append(
-            f'<rect{k} x="{min(xs):.2f}" y="{min(ys):.2f}"'
-            f' width="{max(xs) - min(xs):.2f}" height="{max(ys) - min(ys):.2f}"'
-            f' fill="{fill}" stroke="{stroke}" stroke-width="{width}"{d}/>'
+            f'<polygon{k} points="{pts}" fill="{fill}" stroke="{stroke}"'
+            f' stroke-width="{width}"{d}/>'
         )
+
+    def bbox_local(self, outline) -> tuple[float, float, float, float]:
+        pts = [self.pt(*q) for q in outline]
+        xs = [q[0] for q in pts]
+        ys = [q[1] for q in pts]
+        return min(xs), min(ys), max(xs), max(ys)
 
     def line_local(self, x0, y0, x1, y1, stroke, width=1.0, dash=""):
         p0, p1 = self.pt(x0, y0), self.pt(x1, y1)
@@ -99,17 +100,23 @@ class _Canvas:
         )
 
 
-def _make_canvas(geom: P.PlanGeometry, view_w: float, pad: float) -> _Canvas:
-    """道路まで含めた範囲が収まるキャンバスを作る。"""
-    bbox = (0.0, -geom.road_width_mm, geom.frontage_mm, geom.depth_mm)
-    frame = P.Frame(geom.road_side, 0.0, 0.0, bbox)
-    x0, y0, x1, y1 = frame.bbox(*bbox)
-    span_x, span_y = x1 - x0, y1 - y0
+def _corners(bbox: tuple[float, float, float, float]):
+    x0, y0, x1, y1 = bbox
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+
+
+def _make_canvas(geom: P.PlanGeometry, view_w: float, pad: float,
+                 bbox: tuple[float, float, float, float] | None = None) -> _Canvas:
+    """指定範囲が収まるキャンバスを作る。既定は敷地と道路を含む範囲。"""
+    bbox = bbox if bbox is not None else geom.local_bbox()
+    frame = P.Frame(geom.north_angle_rad, 0.0, 0.0, bbox)
+    x0, y0, x1, y1 = frame.bbox(_corners(bbox))
+    span_x, span_y = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
     scale = (view_w - 2 * pad) / span_x
     height = span_y * scale + 2 * pad
     c = _Canvas(frame, view_w, height, scale)
     # 余白の分だけ内側に寄せる
-    c.frame = P.Frame(geom.road_side, pad / scale, pad / scale, bbox)
+    c.frame = P.Frame(geom.north_angle_rad, pad / scale, pad / scale, bbox)
     return c
 
 
@@ -129,57 +136,61 @@ def render_site_plan(result: VolumeResult) -> str:
     """配置図。敷地・道路・1階外形・最上階外形・寸法・方位。"""
     geom = P.build(result)
     c = _make_canvas(geom, SITE_VIEW_W, SITE_PAD)
-    f_len, d_len, w = geom.frontage_mm, geom.depth_mm, geom.road_width_mm
 
     # --- 道路 ---------------------------------------------------------------
-    c.rect_local(0, -w, f_len, 0, COLORS["road"], COLORS["road_line"], 1.0, cls="road")
-    c.line_local(0, -w / 2, f_len, -w / 2, COLORS["road_line"], 1.0, dash="10 3 2 3")
-    rx, ry = c.pt(f_len / 2, -w / 2)
-    vertical_road = geom.road_side in (RoadSide.EAST, RoadSide.WEST)
-    c.text_px(rx, ry + 4, f"前面道路 W={w / MM:.1f}m（{ROAD_SIDE_LABEL[geom.road_side]}側）",
-              anchor="middle", size=10, fill=COLORS["muted"],
-              rotate=-90 if vertical_road else None)
+    for road in geom.roads:
+        c.polygon_local(road.outline, COLORS["road"], COLORS["road_line"], 1.0, cls="road")
+        a, b = (c.pt(*q) for q in road.center_line)
+        c.parts.append(
+            f'<line x1="{a[0]:.2f}" y1="{a[1]:.2f}" x2="{b[0]:.2f}" y2="{b[1]:.2f}"'
+            f' stroke="{COLORS["road_line"]}" stroke-width="1"'
+            f' stroke-dasharray="10 3 2 3"/>'
+        )
+        angle = math.degrees(math.atan2(b[1] - a[1], b[0] - a[0]))
+        if angle > 90 or angle <= -90:
+            angle += 180
+        c.text_px((a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + 4,
+                  f"前面道路 W={road.width_mm / MM:.1f}m",
+                  anchor="middle", size=10, fill=COLORS["muted"], rotate=angle)
 
     # --- 斜線・建蔽率がない場合の範囲 -----------------------------------------
-    box = geom.unconstrained
-    if box is not None and geom.floors:
-        c.rect_local(*box, "none", COLORS["ghost"], 1.2, dash="4 4", cls="ghost")
+    if geom.unconstrained and geom.floors:
+        c.polygon_local(geom.unconstrained, "none", COLORS["ghost"], 1.2,
+                        dash="4 4", cls="ghost")
 
     # --- 敷地 ---------------------------------------------------------------
-    c.rect_local(0, 0, f_len, d_len, "none", COLORS["site"], 2.0, cls="site")
+    c.polygon_local(geom.site_outline, "none", COLORS["site"], 2.0, cls="site")
 
     # --- 建物外形（1階は塗り、最上階は破線） ----------------------------------
     if geom.floors:
         f1 = geom.floors[0]
         fill, stroke = CONSTRAINT_COLORS[f1.dominant]
-        c.rect_local(f1.x_min_mm, f1.y_min_mm, f1.x_max_mm, f1.y_max_mm,
-                     fill, stroke, 1.5, cls="floor")
-        bx0, _, _, by1 = _sheet_rect(c, f1)
+        c.polygon_local(f1.outline, fill, stroke, 1.5, cls="floor")
+        bx0, _, _, by1 = c.bbox_local(f1.outline)
         c.text_px(bx0 + 6, by1 - 7, f"1F {f1.area_mm2 / M2:,.1f}m2", size=10)
 
         top = geom.floors[-1]
         if top is not f1:
             _, stroke_t = CONSTRAINT_COLORS[top.dominant]
-            c.rect_local(top.x_min_mm, top.y_min_mm, top.x_max_mm, top.y_max_mm,
-                         "none", stroke_t, 1.5, dash="6 4", cls="floor-top")
-            tx0, ty0 = _sheet_rect(c, top)[:2]
+            c.polygon_local(top.outline, "none", stroke_t, 1.5, dash="6 4",
+                            cls="floor-top")
+            tx0, ty0, _, _ = c.bbox_local(top.outline)
             c.text_px(tx0 + 6, ty0 + 13, f"{top.floor}F {top.area_mm2 / M2:,.1f}m2",
                       size=10, fill=stroke_t)
 
-    # --- 寸法 ---------------------------------------------------------------
-    _dim_between(c, (0, 0), (f_len, 0), f"{f_len / MM:,.2f}m")
-    _dim_between(c, (f_len, 0), (f_len, d_len), f"{d_len / MM:,.2f}m")
+    # --- 寸法（矩形敷地のときだけ間口・奥行を入れる） --------------------------
+    if geom.is_rectangle:
+        f_len, d_len = geom.frontage_mm, geom.depth_mm
+        _dim_between(c, (0, 0), (f_len, 0), f"{f_len / MM:,.2f}m")
+        _dim_between(c, (f_len, 0), (f_len, d_len), f"{d_len / MM:,.2f}m")
+    else:
+        c.text_px(SITE_PAD, c.height - 8,
+                  f"間口 {geom.frontage_mm / MM:,.2f}m ／ "
+                  f"奥行（最大）{geom.depth_mm / MM:,.2f}m",
+                  size=10, fill=COLORS["muted"])
 
     _north_arrow(c, c.width - 24, 24)
     return c.svg()
-
-
-def _sheet_rect(c: _Canvas, f: P.FloorPlan) -> tuple[float, float, float, float]:
-    """階の矩形を SVG 座標の (minx, miny, maxx, maxy) で返す。"""
-    pts = [c.pt(x, y) for x in (f.x_min_mm, f.x_max_mm) for y in (f.y_min_mm, f.y_max_mm)]
-    xs = [p[0] for p in pts]
-    ys = [p[1] for p in pts]
-    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _dim_between(c: _Canvas, a: tuple[float, float], b: tuple[float, float],
@@ -212,12 +223,12 @@ def render_floor_plans(result: VolumeResult) -> str:
         return ""
 
     # 全階を同じ縮尺で描く。敷地が収まる大きさを1枚分の基準にする。
-    bbox = (0.0, 0.0, geom.frontage_mm, geom.depth_mm)
-    probe = P.Frame(geom.road_side, 0.0, 0.0, bbox)
-    x0, y0, x1, y1 = probe.bbox(*bbox)
-    span_x, span_y = x1 - x0, y1 - y0
-    scale = (TILE_W - 2 * TILE_PAD) / span_x
-    tile_h = span_y * scale + 2 * TILE_PAD + TILE_LABEL_H
+    xs = [q[0] for q in geom.site_outline]
+    ys = [q[1] for q in geom.site_outline]
+    bbox = (min(xs), min(ys), max(xs), max(ys))
+    probe = _make_canvas(geom, TILE_W, TILE_PAD, bbox)
+    tile_body_h = probe.height
+    tile_h = tile_body_h + TILE_LABEL_H
 
     per_row = 4
     rows = (len(geom.floors) + per_row - 1) // per_row
@@ -232,27 +243,19 @@ def render_floor_plans(result: VolumeResult) -> str:
     for i, f in enumerate(reversed(geom.floors)):
         col, row = i % per_row, i // per_row
         ox, oy = col * TILE_W, row * tile_h
-        tile = _Canvas(
-            P.Frame(geom.road_side, TILE_PAD / scale, TILE_PAD / scale, bbox),
-            TILE_W, tile_h - TILE_LABEL_H, scale,
-        )
-        tile.rect_local(0, 0, geom.frontage_mm, geom.depth_mm,
-                        "none", COLORS["site"], 1.2, cls="site")
-        box = geom.unconstrained
-        if box is not None:
-            tile.rect_local(*box, "none", COLORS["ghost"], 1.0, dash="3 3", cls="ghost")
+        tile = _make_canvas(geom, TILE_W, TILE_PAD, bbox)
+        tile.polygon_local(geom.site_outline, "none", COLORS["site"], 1.2, cls="site")
+        if geom.unconstrained:
+            tile.polygon_local(geom.unconstrained, "none", COLORS["ghost"], 1.0,
+                               dash="3 3", cls="ghost")
         fill, stroke = CONSTRAINT_COLORS[f.dominant]
-        tile.rect_local(f.x_min_mm, f.y_min_mm, f.x_max_mm, f.y_max_mm,
-                        fill, stroke, 1.2, cls="floor")
+        tile.polygon_local(f.outline, fill, stroke, 1.2, cls="floor")
 
         label = f.dominant.value if f.dominant else NO_CONSTRAINT_LEGEND
-        tile.text_px(TILE_PAD, tile.height + 12, f"{f.floor}F", size=11)
-        tile.text_px(TILE_W - TILE_PAD, tile.height + 12, f"{f.area_mm2 / M2:,.1f}m2",
-                     anchor="end", size=10)
-        tile.text_px(TILE_PAD, tile.height + 24, label, size=9, fill=stroke)
-        tile.text_px(TILE_W - TILE_PAD, tile.height + 24,
-                     f"{f.width_mm / MM:.1f}×{f.depth_mm / MM:.1f}m",
-                     anchor="end", size=9, fill=COLORS["muted"])
+        tile.text_px(TILE_PAD, tile_body_h + 12, f"{f.floor}F", size=11)
+        tile.text_px(TILE_W - TILE_PAD, tile_body_h + 12,
+                     f"{f.area_mm2 / M2:,.1f}m2", anchor="end", size=10)
+        tile.text_px(TILE_PAD, tile_body_h + 24, label, size=9, fill=stroke)
 
         parts.append(f'<g transform="translate({ox:.2f} {oy:.2f})">'
                      f'{"".join(tile.parts)}</g>')

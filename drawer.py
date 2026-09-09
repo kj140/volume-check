@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import datetime as _dt
+import math
 from pathlib import Path
 
 import ezdxf
@@ -201,87 +202,75 @@ def _dim(msp, p1, p2, base, text: str = "<>"):
 # 配置図
 # ---------------------------------------------------------------------------
 
-_PLAN_SIDE_PAD = 4000.0    # 道路を敷地の左右にはみ出させる長さ・寸法線の余地
-_PLAN_DIM_PAD = 5000.0     # 道路側／奥側の寸法線のための余地
+_PLAN_PAD = 5000.0     # 寸法線・方位記号のための余地
 
 
 def _plan_local_bbox(r: VolumeResult) -> tuple[float, float, float, float]:
     """配置図が実際に使うローカル座標の範囲（寸法線の張り出しを含む）。"""
-    s = r.input.site
-    return (
-        -_PLAN_SIDE_PAD,
-        -s.road_width_mm - _PLAN_DIM_PAD,
-        s.frontage_mm + _PLAN_SIDE_PAD,
-        s.depth_mm + _PLAN_DIM_PAD,
-    )
+    return P.build(r).local_bbox(_PLAN_PAD)
 
 
 def _plan_size(r: VolumeResult) -> tuple[float, float]:
-    x0, y0, x1, y1 = _plan_local_bbox(r)
-    span_x, span_y = x1 - x0, y1 - y0
-    if r.input.site.road_side in (RoadSide.SOUTH, RoadSide.NORTH):
-        w, h = span_x, span_y
-    else:
-        w, h = span_y, span_x
-    return w + 2 * MARGIN, h + 2 * MARGIN + HEAD_ZONE
+    geom = P.build(r)
+    frame = P.Frame(geom.north_angle_rad, 0.0, 0.0, geom.local_bbox(_PLAN_PAD))
+    x0, y0, x1, y1 = frame.bbox(_bbox_corners(geom.local_bbox(_PLAN_PAD)))
+    return (x1 - x0) + 2 * MARGIN, (y1 - y0) + 2 * MARGIN + HEAD_ZONE
+
+
+def _bbox_corners(bbox: tuple[float, float, float, float]):
+    x0, y0, x1, y1 = bbox
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
 
 
 def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
-    site = r.input.site
-    frame = P.Frame(site.road_side, ox + MARGIN, oy + MARGIN, _plan_local_bbox(r))
-    F, D, W = site.frontage_mm, site.depth_mm, site.road_width_mm
+    geom = P.build(r)
+    bbox = geom.local_bbox(_PLAN_PAD)
+    frame = P.Frame(geom.north_angle_rad, ox + MARGIN, oy + MARGIN, bbox)
     _, block_h = _plan_size(r)
 
     _text(msp, "配 置 図（実寸 1:1）", (ox + MARGIN, oy + block_h - MARGIN - H_HEAD),
           H_HEAD, "A-TEXT")
 
     # --- 道路 ---------------------------------------------------------------
-    msp.add_lwpolyline(
-        [frame(-_PLAN_SIDE_PAD, -W), frame(F + _PLAN_SIDE_PAD, -W),
-         frame(F + _PLAN_SIDE_PAD, 0.0), frame(-_PLAN_SIDE_PAD, 0.0)],
-        close=True, dxfattribs={"layer": "S-ROAD"},
-    )
-    _line(msp, frame(-_PLAN_SIDE_PAD, -W / 2), frame(F + _PLAN_SIDE_PAD, -W / 2),
-          "S-ROAD", LT_CENTER)
-    # 道路が図面上で縦に走る（東西の前面道路）ときは文字も 90 度回す。
-    # 中心線に重ならないよう、敷地と反対側へ少しずらす。
-    vx, vy = P.ROAD_VECTORS[site.road_side]
-    road_label = frame(F * 0.5, -W * 0.5)
-    _text(msp, f"前面道路 W={W / MM:.1f}m（{ROAD_SIDE_LABEL[site.road_side]}側）",
-          (road_label[0] - vx * 900.0, road_label[1] - vy * 900.0),
-          H_TEXT, "A-TEXT", TA.MIDDLE_CENTER,
-          rotation=90.0 if abs(vx) > abs(vy) else 0.0)
+    for road in geom.roads:
+        msp.add_lwpolyline(frame.path(road.outline), close=True,
+                           dxfattribs={"layer": "S-ROAD"})
+        a, b = road.center_line
+        _line(msp, frame(*a), frame(*b), "S-ROAD", LT_CENTER)
+        mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        angle = math.degrees(math.atan2(*reversed(
+            [frame(*b)[i] - frame(*a)[i] for i in (0, 1)])))
+        _text(msp, f"前面道路 W={road.width_mm / MM:.1f}m", frame(*mid),
+              H_TEXT, "A-TEXT", TA.MIDDLE_CENTER,
+              rotation=angle if -90 < angle <= 90 else angle + 180)
+
+    # --- 斜線・建蔽率がない場合の範囲 -----------------------------------------
+    if geom.unconstrained and geom.floors:
+        msp.add_lwpolyline(frame.path(geom.unconstrained), close=True,
+                           dxfattribs={"layer": "A-ENVL"})
 
     # --- 敷地 ---------------------------------------------------------------
-    msp.add_lwpolyline(
-        [frame(0, 0), frame(F, 0), frame(F, D), frame(0, D)],
-        close=True, dxfattribs={"layer": "S-SITE"},
-    )
-    _text(msp, "敷地境界線", frame(F, D + 900.0), H_TEXT, "A-TEXT", TA.BOTTOM_RIGHT)
+    msp.add_lwpolyline(frame.path(geom.site_outline), close=True,
+                       dxfattribs={"layer": "S-SITE"})
+    sx0, _, _, sy1 = frame.bbox(geom.site_outline)
+    _text(msp, f"敷地境界線  {r.site_area_mm2 / M2:,.2f}m2", (sx0, sy1 + 900.0),
+          H_TEXT, "A-TEXT")
 
-    # --- 建物外形（1階=実線 / 最上階=破線） ----------------------------------
-    if r.floors:
-        f1 = r.floors[0]
-        msp.add_lwpolyline(
-            [frame(f1.x_min_mm, f1.y_min_mm), frame(f1.x_max_mm, f1.y_min_mm),
-             frame(f1.x_max_mm, f1.y_max_mm), frame(f1.x_min_mm, f1.y_max_mm)],
-            close=True, dxfattribs={"layer": "A-OUTL"},
-        )
-        bx0, by0, _, _ = frame.bbox(f1.x_min_mm, f1.y_min_mm,
-                                     f1.x_max_mm, f1.y_max_mm)
-        _text(msp, f"1F 外形 {f1.gross_area_mm2 / M2:,.1f}m2",
-              (bx0 + 700, by0 + 700), H_TEXT, "A-TEXT")
+    # --- 建物外形（1階は実線、最上階は破線） ----------------------------------
+    if geom.floors:
+        f1 = geom.floors[0]
+        msp.add_lwpolyline(frame.path(f1.outline), close=True,
+                           dxfattribs={"layer": "A-OUTL"})
+        bx0, by0, _, _ = frame.bbox(f1.outline)
+        _text(msp, f"1F 外形 {f1.area_mm2 / M2:,.1f}m2", (bx0 + 700, by0 + 700),
+              H_TEXT, "A-TEXT")
 
-        ft = r.floors[-1]
-        if ft is not f1:
-            msp.add_lwpolyline(
-                [frame(ft.x_min_mm, ft.y_min_mm), frame(ft.x_max_mm, ft.y_min_mm),
-                 frame(ft.x_max_mm, ft.y_max_mm), frame(ft.x_min_mm, ft.y_max_mm)],
-                close=True, dxfattribs={"layer": "A-OUTL", "linetype": LT_DASHED},
-            )
-            tx0, _, _, ty1 = frame.bbox(ft.x_min_mm, ft.y_min_mm,
-                                         ft.x_max_mm, ft.y_max_mm)
-            _text(msp, f"{ft.floor}F 外形（破線）{ft.gross_area_mm2 / M2:,.1f}m2",
+        top = geom.floors[-1]
+        if top is not f1:
+            msp.add_lwpolyline(frame.path(top.outline), close=True,
+                               dxfattribs={"layer": "A-OUTL", "linetype": LT_DASHED})
+            tx0, _, _, ty1 = frame.bbox(top.outline)
+            _text(msp, f"{top.floor}F 外形（破線）{top.area_mm2 / M2:,.1f}m2",
                   (tx0 + 700, ty1 - 700 - H_TEXT), H_TEXT, "A-TEXT")
 
     # --- 方位記号（北は常に図面上方） -----------------------------------------
@@ -295,18 +284,15 @@ def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
     )
     _text(msp, "N", (nx, ny + 2700), H_TEXT, "A-TEXT", TA.BOTTOM_CENTER)
 
-    # --- 寸法 ---------------------------------------------------------------
-    _dim(msp, frame(0, 0), frame(F, 0), frame(F / 2, -W - 2600.0))          # 間口
-    _dim(msp, frame(F, 0), frame(F, D), frame(F + 2800.0, D / 2))           # 奥行
-    if r.floors:
-        ft = r.floors[-1]
-        if ft.y_min_mm > 1.0:
-            _dim(msp, frame(0, 0), frame(0, ft.y_min_mm), frame(-2000.0, ft.y_min_mm / 2),
-                 text=f"最上階 道路側後退 {ft.y_min_mm / MM:.2f}m")
-        if ft.x_min_mm > 1.0:
-            _dim(msp, frame(0, D), frame(ft.x_min_mm, D),
-                 frame(ft.x_min_mm / 2, D + 2800.0),
-                 text=f"隣地側後退 {ft.x_min_mm / MM:.2f}m")
+    # --- 寸法（矩形敷地のときだけ間口・奥行を入れる） --------------------------
+    if geom.is_rectangle:
+        f_len, d_len = geom.frontage_mm, geom.depth_mm
+        _dim(msp, frame(0, 0), frame(f_len, 0), frame(f_len / 2, -geom.road_width_mm - 2600.0))
+        _dim(msp, frame(f_len, 0), frame(f_len, d_len), frame(f_len + 2800.0, d_len / 2))
+    else:
+        _text(msp, f"間口 {geom.frontage_mm / MM:,.2f}m ／ "
+                   f"奥行（最大） {geom.depth_mm / MM:,.2f}m",
+              (ox + MARGIN, oy + MARGIN * 0.4), H_TEXT, "A-TEXT")
 
 
 # ---------------------------------------------------------------------------
