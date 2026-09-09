@@ -21,7 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from constants import M2_TO_MM2, M_TO_MM, UseDistrict
+from constants import M2_TO_MM2, M_TO_MM, FireZone, UseDistrict
 
 
 class RoadSide(str, Enum):
@@ -90,6 +90,8 @@ class SiteInput:
     depth_mm: float             # 道路と直交する方向の辺の長さ
     road_width_mm: float        # 前面道路の幅員
     road_side: RoadSide
+    # 街区の角にある敷地等で特定行政庁が指定するもの（法53条3項2号）
+    corner_lot: bool = False
 
     def __post_init__(self) -> None:
         for name in ("frontage_mm", "depth_mm", "road_width_mm"):
@@ -107,6 +109,7 @@ class SiteInput:
             depth_mm=float(d["depth"]) * M_TO_MM,
             road_width_mm=float(d["road_width"]) * M_TO_MM,
             road_side=RoadSide(d["road_side"]),
+            corner_lot=bool(d.get("corner_lot", False)),
         )
 
 
@@ -118,6 +121,7 @@ class ZoningInput:
     bcr: float
     far_designated: float
     height_limit_absolute_mm: float | None = None
+    fire_zone: FireZone = FireZone.NONE
 
     def __post_init__(self) -> None:
         if not 0 < self.bcr <= 1.0:
@@ -135,6 +139,7 @@ class ZoningInput:
             bcr=float(d["bcr"]),
             far_designated=float(d["far_designated"]),
             height_limit_absolute_mm=None if raw_limit is None else float(raw_limit) * M_TO_MM,
+            fire_zone=FireZone(d.get("fire_zone") or FireZone.NONE.value),
         )
 
 
@@ -147,6 +152,9 @@ class ProgramInput:
     wall_setback_mm: float      # 外壁後退（敷地境界から建物外面まで、全周）
     core_ratio: float           # コア比率。貸室面積 = 床面積 × (1 - core_ratio)
     max_floors: int
+    # 耐火建築物等（準防火地域では準耐火建築物等を含む）とするか。
+    # 建蔽率の緩和（法53条3項1号・6項1号）の判定に使う計画側の選択。
+    fireproof: bool = False
 
     def __post_init__(self) -> None:
         for name in ("floor_height_mm", "gf_height_mm"):
@@ -171,6 +179,7 @@ class ProgramInput:
             wall_setback_mm=float(d["wall_setback"]) * M_TO_MM,
             core_ratio=float(d["core_ratio"]),
             max_floors=int(d["max_floors"]),
+            fireproof=bool(d.get("fireproof", False)),
         )
 
 
@@ -307,6 +316,10 @@ class VolumeResult:
 
     # 実際に適用した絶対高さ制限。入力が None でも用途地域によっては既定値が入る。
     height_limit_applied_mm: float | None = None
+
+    # 緩和後の建蔽率（法53条3項・6項）と、適用した緩和 (説明, 根拠条文)
+    bcr_effective: float = 0.0
+    bcr_relaxations: list[tuple[str, str]] = field(default_factory=list)
 
     # 建蔽率による全階の一律絞り込み
     bcr_inset_mm: float = 0.0

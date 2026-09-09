@@ -161,3 +161,12 @@ footer {
 .tab { padding: 3px 10px; font-size: 12px; border-radius: 4px; }
 .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .tab.active:hover { background: #1e40af; }
+
+/* --- チェックボックス項目 -------------------------------------------------- */
+label.check { flex-direction: row; align-items: flex-start; gap: 6px; }
+label.check input { margin: 2px 0 0; }
+label.check small { display: block; }
+
+/* --- 自動取得した敷地条件 -------------------------------------------------- */
+#site-conditions .cond { display: inline-block; margin-right: 10px; }
+#site-conditions .warn { display: block; color: var(--warn); margin-top: 3px; }

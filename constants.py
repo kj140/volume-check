@@ -200,6 +200,70 @@ NEIGHBOR_SLANT: dict[UseDistrict, tuple[float, float] | None] = {
 
 
 # ---------------------------------------------------------------------------
+# 防火地域・準防火地域（法61条・都市計画法8条1項5号）
+# ---------------------------------------------------------------------------
+
+
+class FireZone(str, Enum):
+    """防火地域の指定。建蔽率の緩和（法53条3項・6項）の判定に使う。"""
+
+    FIRE = "防火地域"
+    QUASI_FIRE = "準防火地域"
+    NONE = "指定なし"
+
+
+# ---------------------------------------------------------------------------
+# 建蔽率の緩和（法53条3項・6項）
+# ---------------------------------------------------------------------------
+# 法53条3項:
+#   一 防火地域（建蔽率の限度が8/10とされている地域を除く）内の耐火建築物等
+#     または 準防火地域内の耐火建築物等・準耐火建築物等   → 1/10 を加える
+#   二 街区の角にある敷地等で特定行政庁が指定するもの      → 1/10 を加える
+#   一と二の両方に該当する場合                            → 2/10 を加える
+#
+# 法53条6項1号:
+#   建蔽率の限度が8/10とされている地域内の防火地域にある耐火建築物等は
+#   建蔽率の制限を受けない（＝10/10）。
+#
+# 「耐火建築物等とするか」は計画side の判断なので入力で受け取る。
+# 角地は特定行政庁の指定によるため、これも入力で受け取る。
+BCR_RELAXATION_FIREPROOF = 0.1          # 法53条3項1号
+BCR_RELAXATION_CORNER_LOT = 0.1         # 法53条3項2号
+BCR_UNLIMITED_BASE = 0.8                # 法53条6項1号が対象とする指定建蔽率
+BCR_UNLIMITED = 1.0                     # 同号適用時の建蔽率
+
+
+def relaxed_bcr(
+    bcr: float,
+    fire_zone: FireZone | None,
+    fireproof: bool,
+    corner_lot: bool,
+) -> tuple[float, list[tuple[str, str]]]:
+    """緩和後の建蔽率と、適用した緩和の一覧 (説明, 根拠条文) を返す。
+
+    fire_zone が None または指定なしのときは防火系の緩和を適用しない。
+    """
+    applied: list[tuple[str, str]] = []
+
+    # 法53条6項1号: 建蔽率8/10の地域内の防火地域で耐火建築物等 → 制限なし
+    if (fire_zone is FireZone.FIRE and fireproof
+            and abs(bcr - BCR_UNLIMITED_BASE) < 1e-9):
+        applied.append(("防火地域内の耐火建築物等（指定建蔽率80%）→ 建蔽率の制限なし",
+                        "法53条6項1号"))
+        return BCR_UNLIMITED, applied
+
+    result = bcr
+    if fireproof and fire_zone in (FireZone.FIRE, FireZone.QUASI_FIRE):
+        result += BCR_RELAXATION_FIREPROOF
+        applied.append((f"{fire_zone.value}内の耐火建築物等 → +10%", "法53条3項1号"))
+    if corner_lot:
+        result += BCR_RELAXATION_CORNER_LOT
+        applied.append(("角地等（特定行政庁の指定）→ +10%", "法53条3項2号"))
+
+    return min(result, BCR_UNLIMITED), applied
+
+
+# ---------------------------------------------------------------------------
 # 絶対高さ制限（法55条1項）
 # ---------------------------------------------------------------------------
 # 第一種・第二種低層住居専用地域・田園住居地域では 10m または 12m のうち

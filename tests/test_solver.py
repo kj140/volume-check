@@ -199,7 +199,7 @@ def test_max_floors_is_respected():
 def test_result_always_records_applied_rules_and_notes():
     r = solve(make())
     labels = {rule.label for rule in r.applied_rules}
-    assert {"用途地域", "建蔽率", "指定容積率", "実効容積率", "道路斜線 勾配",
+    assert {"用途地域", "指定建蔽率", "指定容積率", "実効容積率", "道路斜線 勾配",
             "道路斜線 適用距離", "隣地斜線"} <= labels
     assert all(rule.basis for rule in r.applied_rules), "根拠条文のない適用規定がある"
     assert r.notes, "未考慮事項の注記が空"
@@ -590,3 +590,78 @@ def test_wider_road_reduces_the_road_slant_impact():
 def test_every_constraint_has_a_statutory_basis():
     for constraint in C_.Constraint:
         assert constraint.basis.startswith("法"), constraint
+
+
+# ---------------------------------------------------------------------------
+# 建蔽率の緩和（法53条3項・6項）
+# ---------------------------------------------------------------------------
+
+
+def test_no_relaxation_by_default():
+    r = solve(make())
+    assert r.bcr_effective == pytest.approx(0.8)
+    assert r.bcr_relaxations == []
+    assert any("未適用" in n for n in r.notes)
+
+
+def test_fireproof_in_fire_zone_with_bcr_80_removes_the_limit():
+    """指定建蔽率8/10の地域内の防火地域で耐火建築物等 → 建蔽率の制限なし（法53条6項1号）。"""
+    r = solve(make(zoning={"fire_zone": "防火地域"}, program={"fireproof": True}))
+    assert r.bcr_effective == pytest.approx(1.0)
+    assert r.max_building_area_mm2 == pytest.approx(r.site_area_mm2)
+    assert any("法53条6項1号" == basis for _, basis in r.bcr_relaxations)
+    # 建蔽率で絞られなくなるので1階は外壁後退のみの大きさになる
+    assert r.bcr_inset_mm == pytest.approx(0.0)
+    assert r.floors[0].gross_area_mm2 == pytest.approx(19.0 * 29.0 * M2)
+
+
+def test_fireproof_in_fire_zone_with_lower_bcr_adds_ten_percent():
+    """8/10以外の地域では +1/10（法53条3項1号）。"""
+    r = solve(make(zoning={"bcr": 0.6, "fire_zone": "防火地域"},
+                   program={"fireproof": True}))
+    assert r.bcr_effective == pytest.approx(0.7)
+    assert any("法53条3項1号" == basis for _, basis in r.bcr_relaxations)
+
+
+def test_quasi_fire_zone_and_corner_lot_stack_to_twenty_percent():
+    """準防火地域の耐火建築物等 + 角地 → +2/10（法53条3項）。"""
+    r = solve(make(zoning={"bcr": 0.6, "fire_zone": "準防火地域"},
+                   program={"fireproof": True}, site={"corner_lot": True}))
+    assert r.bcr_effective == pytest.approx(0.8)
+    bases = {basis for _, basis in r.bcr_relaxations}
+    assert bases == {"法53条3項1号", "法53条3項2号"}
+
+
+def test_corner_lot_alone_adds_ten_percent():
+    r = solve(make(site={"corner_lot": True}, zoning={"bcr": 0.6}))
+    assert r.bcr_effective == pytest.approx(0.7)
+
+
+def test_fire_zone_without_fireproof_gives_no_relaxation():
+    """防火地域でも耐火建築物等としなければ緩和されない。"""
+    r = solve(make(zoning={"fire_zone": "防火地域"}, program={"fireproof": False}))
+    assert r.bcr_effective == pytest.approx(0.8)
+    assert r.bcr_relaxations == []
+
+
+def test_relaxed_bcr_never_exceeds_one():
+    r = solve(make(zoning={"bcr": 0.95, "fire_zone": "準防火地域"},
+                   program={"fireproof": True}, site={"corner_lot": True}))
+    assert r.bcr_effective == pytest.approx(1.0)
+
+
+def test_relaxation_increases_the_building_area():
+    plain = solve(make(zoning={"bcr": 0.6}))
+    relaxed = solve(make(zoning={"bcr": 0.6, "fire_zone": "防火地域"},
+                         program={"fireproof": True}))
+    assert relaxed.building_area_mm2 > plain.building_area_mm2
+    assert relaxed.max_building_area_mm2 == pytest.approx(
+        plain.max_building_area_mm2 * 0.7 / 0.6
+    )
+
+
+def test_relaxation_is_recorded_in_applied_rules():
+    r = solve(make(zoning={"fire_zone": "防火地域"}, program={"fireproof": True}))
+    labels = {rule.label for rule in r.applied_rules}
+    assert {"指定建蔽率", "防火地域の指定", "建蔽率の緩和", "緩和後の建蔽率"} <= labels
+    assert not any("未適用" in n for n in r.notes)

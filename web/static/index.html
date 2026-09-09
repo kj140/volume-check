@@ -61,6 +61,7 @@
           </label>
         </div>
         <p class="hint" id="site-area-hint"></p>
+        <p class="hint" id="site-conditions"></p>
       </fieldset>
 
       <fieldset>
@@ -75,10 +76,22 @@
           <label>指定容積率 <small>(%)</small>
             <input name="far_designated" type="number" step="10" min="10" value="600" required>
           </label>
-          <label class="span2">絶対高さ制限 <small>(m・なければ空欄)</small>
+          <label>絶対高さ制限 <small>(m・なければ空欄)</small>
             <input name="height_limit_absolute" type="number" step="0.1" min="0.1" placeholder="指定なし">
           </label>
+          <label>防火地域 <small>(法61条)</small>
+            <select name="fire_zone"></select>
+          </label>
+          <label class="check span2">
+            <input name="corner_lot" type="checkbox">
+            <span>角地等の指定を受けている <small>建蔽率 +10%（法53条3項2号）</small></span>
+          </label>
+          <label class="check span2">
+            <input name="fireproof" type="checkbox">
+            <span>耐火建築物等とする <small>防火・準防火地域で建蔽率を緩和（法53条3項1号・6項1号）</small></span>
+          </label>
         </div>
+        <p class="hint" id="bcr-hint"></p>
         <p class="hint" id="zoning-hint"></p>
       </fieldset>
 

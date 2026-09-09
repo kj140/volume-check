@@ -67,7 +67,11 @@ def solve(inp: VolumeInput) -> VolumeResult:
     # --- 2) 3) 上限面積 ------------------------------------------------------
     site_area_mm2 = site.area_mm2
     max_far_area_mm2 = site_area_mm2 * far_effective
-    max_building_area_mm2 = site_area_mm2 * zoning.bcr
+    # 建蔽率は防火地域・角地による緩和を反映する（法53条3項・6項）
+    bcr_effective, bcr_relaxations = C.relaxed_bcr(
+        zoning.bcr, zoning.fire_zone, program.fireproof, site.corner_lot
+    )
+    max_building_area_mm2 = site_area_mm2 * bcr_effective
 
     # --- 斜線の根拠値 --------------------------------------------------------
     road_gradient = C.road_slant_gradient(district)
@@ -93,6 +97,8 @@ def solve(inp: VolumeInput) -> VolumeResult:
         neighbor_slant_start_mm=neighbor_start_mm,
         neighbor_slant_gradient=neighbor_gradient,
         height_limit_applied_mm=height_limit_mm,
+        bcr_effective=bcr_effective,
+        bcr_relaxations=bcr_relaxations,
     )
     _record_applied_rules(result)
 
@@ -335,7 +341,17 @@ def _record_applied_rules(r: VolumeResult) -> None:
     district = z.use_district
 
     r.applied_rules.append(AppliedRule("用途地域", district.value, "都市計画法8条1項1号"))
-    r.applied_rules.append(AppliedRule("建蔽率", f"{z.bcr * 100:.0f}%", "法53条"))
+    r.applied_rules.append(AppliedRule("指定建蔽率", f"{z.bcr * 100:.0f}%", "法53条1項"))
+    if z.fire_zone is not C.FireZone.NONE:
+        r.applied_rules.append(
+            AppliedRule("防火地域の指定", z.fire_zone.value, "法61条")
+        )
+    for description, basis in r.bcr_relaxations:
+        r.applied_rules.append(AppliedRule("建蔽率の緩和", description, basis))
+    if r.bcr_relaxations:
+        r.applied_rules.append(
+            AppliedRule("緩和後の建蔽率", f"{r.bcr_effective * 100:.0f}%", "法53条3項・6項")
+        )
     r.applied_rules.append(
         AppliedRule("指定容積率", f"{z.far_designated * 100:.0f}%", "法52条1項")
     )
@@ -405,7 +421,11 @@ def _record_applied_rules(r: VolumeResult) -> None:
     # 未考慮事項（推測で緩和を適用していないことを明示する）
     r.notes.append("容積率対象床面積は床面積と同一として算定（法52条3項〜6項の不算入は未考慮）")
     r.notes.append("法56条4項の後退距離による道路斜線の緩和は未考慮（安全側）")
-    r.notes.append("法53条3項の角地緩和・防火地域内耐火建築物の緩和は未考慮（安全側）")
+    if not r.bcr_relaxations:
+        r.notes.append(
+            "法53条3項の角地緩和・防火地域内耐火建築物の緩和は未適用"
+            "（該当する場合は入力で指定すると反映されます）"
+        )
     r.notes.append("法52条9項の特定道路による容積率緩和は未考慮（安全側）")
     if district == C.UseDistrict.UNDESIGNATED:
         r.notes.append(

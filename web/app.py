@@ -66,6 +66,9 @@ class SiteIn(BaseModel):
     depth: float = Field(gt=0, description="道路と直交する辺の長さ[m]")
     road_width: float = Field(gt=0, description="前面道路の幅員[m]")
     road_side: Literal["north", "east", "south", "west"]
+    corner_lot: bool = Field(
+        default=False, description="角地等の指定を受けているか（法53条3項2号）"
+    )
 
 
 class ZoningIn(BaseModel):
@@ -73,6 +76,9 @@ class ZoningIn(BaseModel):
     bcr: float = Field(gt=0, le=1.0, description="建蔽率（倍率表記 0.8 = 80%）")
     far_designated: float = Field(gt=0, description="指定容積率（倍率表記 6.0 = 600%）")
     height_limit_absolute: float | None = Field(default=None, gt=0)
+    fire_zone: Literal["防火地域", "準防火地域", "指定なし"] = Field(
+        default="指定なし", description="防火地域の指定（法61条）"
+    )
 
 
 class ProgramIn(BaseModel):
@@ -81,6 +87,9 @@ class ProgramIn(BaseModel):
     wall_setback: float = Field(ge=0)
     core_ratio: float = Field(ge=0, lt=1.0)
     max_floors: int = Field(ge=1, le=200)
+    fireproof: bool = Field(
+        default=False, description="耐火建築物等とするか（法53条3項1号・6項1号）"
+    )
 
 
 class VolumeIn(BaseModel):
@@ -124,6 +133,10 @@ def _summary(r: VolumeResult) -> dict:
         "far_achieved": round(r.achieved_far, 4),
         "max_far_area_m2": round(r.max_far_area_mm2 / M2, 2),
         "bcr": r.input.zoning.bcr,
+        "bcr_effective": r.bcr_effective,
+        "bcr_relaxations": [
+            {"description": d, "basis": b} for d, b in r.bcr_relaxations
+        ],
         "bcr_achieved": round(r.achieved_bcr, 4),
         "building_area_m2": round(r.building_area_mm2 / M2, 2),
         "max_building_area_m2": round(r.max_building_area_mm2 / M2, 2),
@@ -228,6 +241,7 @@ def use_districts() -> dict:
     """用途地域の選択肢と、絶対高さ制限が必須の地域。"""
     return {
         "districts": [d.value for d in C.UseDistrict],
+        "fire_zones": [z.value for z in C.FireZone],
         "absolute_height_limit_required": [
             d.value for d in C.DISTRICTS_REQUIRING_ABSOLUTE_HEIGHT_LIMIT
         ],
@@ -258,7 +272,11 @@ def rect_to_size(rect: RectIn) -> dict:
 async def zoning_lookup(
     lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=180)
 ) -> dict:
-    """緯度経度から用途地域・建蔽率・容積率を推定する。失敗しても200で返す。"""
+    """緯度経度から敷地の法規条件を推定する。失敗しても200で返す。
+
+    用途地域・建蔽率・容積率のほか、防火地域・区域区分・地区計画・高度利用地区も
+    引く。公開APIに存在しない項目（高度地区・道路幅員など）は unavailable で返す。
+    """
     return (await zoning.lookup(lon, lat)).to_dict()
 
 

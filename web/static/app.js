@@ -141,24 +141,63 @@ $("#q").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventD
 async function lookupZoningAt(lat, lon) {
   const badge = $("#zoning-source");
   const hint = $("#zoning-hint");
+  const conds = $("#site-conditions");
   badge.textContent = "判定中…";
+  conds.innerHTML = "";
   try {
     const res = await fetch(`/api/zoning?lat=${lat}&lon=${lon}`);
-    const z = await res.json();
+    const c = await res.json();
+    const z = c.zoning;
+
     if (z.district) {
       form.use_district.value = z.district;
       if (z.bcr) form.bcr.value = Math.round(z.bcr * 100);
       if (z.far) form.far_designated.value = Math.round(z.far * 100);
-      badge.textContent = z.source === "reinfolib" ? "自動判定（不動産情報ライブラリ）" : "自動判定（ローカルデータ）";
+      if (c.fire_zone) form.fire_zone.value = c.fire_zone;
+      badge.textContent = z.source === "reinfolib"
+        ? "自動判定（不動産情報ライブラリ）" : "自動判定（ローカルデータ）";
       hint.textContent = "自動判定した値です。実際の都市計画情報で必ず確認してください。";
     } else {
       badge.textContent = "手入力";
       hint.textContent = z.detail || "自動判定できませんでした。手入力してください。";
     }
+
+    // 取れた敷地条件と、公開APIで取れない項目を出す
+    const found = [
+      ["用途地域", z.district],
+      ["防火地域", c.fire_zone],
+      ["区域区分", c.area_classification],
+      ["地区計画", c.district_plan],
+      ["高度利用地区", c.high_use_district],
+    ].filter(([, v]) => v);
+
+    conds.innerHTML =
+      found.map(([k, v]) => `<span class="cond">${k}: <b>${v}</b></span>`).join("") +
+      (c.warnings || []).map((w) => `<span class="warn">⚠ ${w}</span>`).join("") +
+      ((c.unavailable || []).length
+        ? `<span class="warn">公開データで取得できないため手入力が必要: ${c.unavailable.join(" / ")}</span>`
+        : "");
+
+    updateBcrHint();
+    scheduleSolve();
   } catch (e) {
     badge.textContent = "手入力";
     hint.textContent = `自動判定に失敗しました: ${e}`;
   }
+}
+
+/** 建蔽率の緩和が効く条件かどうかを伝える。 */
+function updateBcrHint(summary) {
+  const el = $("#bcr-hint");
+  if (summary && summary.bcr_relaxations && summary.bcr_relaxations.length) {
+    el.innerHTML = `建蔽率 ${pct(summary.bcr)} → <b>${pct(summary.bcr_effective)}</b>：` +
+      summary.bcr_relaxations.map((r) => `${r.description}［${r.basis}］`).join(" / ");
+    return;
+  }
+  const fz = form.fire_zone.value;
+  el.textContent = (fz && fz !== "指定なし" && !form.fireproof.checked)
+    ? `${fz}です。耐火建築物等とすれば建蔽率が緩和されます（法53条3項1号・6項1号）。`
+    : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -171,17 +210,20 @@ function payload() {
     site: {
       frontage: num("frontage"), depth: num("depth"),
       road_width: num("road_width"), road_side: form.road_side.value,
+      corner_lot: form.corner_lot.checked,
     },
     zoning: {
       use_district: form.use_district.value,
       bcr: num("bcr") / 100,
       far_designated: num("far_designated") / 100,
       height_limit_absolute: limit === "" ? null : parseFloat(limit),
+      fire_zone: form.fire_zone.value,
     },
     program: {
       floor_height: num("floor_height"), gf_height: num("gf_height"),
       wall_setback: num("wall_setback"), core_ratio: num("core_ratio") / 100,
       max_floors: parseInt(form.max_floors.value, 10),
+      fireproof: form.fireproof.checked,
     },
   };
 }
@@ -285,12 +327,15 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+const s0 = (data) => data.summary;
+
 function render(data) {
   $("#svg").innerHTML = data.svg;
   $("#svg-site").innerHTML = data.svg_site_plan || "";
   $("#svg-floors").innerHTML =
     data.svg_floor_plans || `<p class="hint">建築可能な階が成立しません。</p>`;
   renderConstraints(data);
+  updateBcrHint(s0(data));
 
   const s = data.summary;
   const cards = [
@@ -301,7 +346,10 @@ function render(data) {
     ["建築面積", `${n2(s.building_area_m2)}`, `m2 / 上限 ${n2(s.max_building_area_m2)}`],
     ["実効容積率", pct(s.far_effective),
       s.far_by_road === null ? "道路幅員の低減なし" : `道路幅員による ${pct(s.far_by_road)}`],
-    ["達成容積率", pct(s.far_achieved), `建蔽率 ${pct(s.bcr_achieved)}`],
+    ["達成容積率", pct(s.far_achieved),
+      s.bcr_relaxations.length
+        ? `建蔽率 ${pct(s.bcr_achieved)}（緩和後上限 ${pct(s.bcr_effective)}）`
+        : `建蔽率 ${pct(s.bcr_achieved)}`],
     ["貸室面積", `${n2(s.total_rentable_area_m2)}`, "m2"],
   ];
   $("#summary").innerHTML = cards
@@ -380,6 +428,9 @@ form.road_side.addEventListener("change", () => updateFromRect(false));
   const meta = await (await fetch("/api/use-districts")).json();
   form.use_district.innerHTML = meta.districts
     .map((d) => `<option${d === "商業地域" ? " selected" : ""}>${d}</option>`).join("");
+  form.fire_zone.innerHTML = meta.fire_zones
+    .map((z) => `<option${z === "指定なし" ? " selected" : ""}>${z}</option>`).join("");
+  form.addEventListener("change", () => updateBcrHint());
 
   const lookup = meta.zoning_lookup;
   $("#zoning-source").textContent = lookup.reinfolib_enabled

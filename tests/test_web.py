@@ -286,10 +286,10 @@ async def test_zoning_lookup_falls_back_without_data(monkeypatch):
     """APIキーもローカルデータもなければ、例外ではなく理由付きの「不明」を返す。"""
     monkeypatch.delenv("REINFOLIB_API_KEY", raising=False)
     monkeypatch.setattr(zoning, "DATA_DIR", Path("does-not-exist"))
-    guess = await zoning.lookup(139.767, 35.681)
-    assert guess.district is None
-    assert guess.source == "none"
-    assert guess.detail
+    conditions = await zoning.lookup(139.767, 35.681)
+    assert conditions.zoning.district is None
+    assert conditions.zoning.source == "none"
+    assert conditions.zoning.detail
 
 
 @pytest.fixture
@@ -300,7 +300,10 @@ def anyio_backend():
 def test_zoning_endpoint_always_returns_200():
     res = client.get("/api/zoning", params={"lat": 35.681, "lon": 139.767})
     assert res.status_code == 200
-    assert "source" in res.json()
+    body = res.json()
+    assert "source" in body["zoning"]
+    # 公開APIで取れない項目を明示している
+    assert isinstance(body["unavailable"], list)
 
 
 # ---------------------------------------------------------------------------
