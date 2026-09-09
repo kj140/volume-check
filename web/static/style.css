@@ -155,3 +155,9 @@ footer {
 
 .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
           margin-right: 5px; vertical-align: -1px; }
+
+/* --- 図の切り替えタブ ----------------------------------------------------- */
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab { padding: 3px 10px; font-size: 12px; border-radius: 4px; }
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tab.active:hover { background: #1e40af; }

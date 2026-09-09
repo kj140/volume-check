@@ -108,8 +108,19 @@
   <!-- ===================== 右：結果 ===================== -->
   <section class="pane pane-result">
     <div class="block">
-      <h2>3. 断面図</h2>
-      <div id="svg" class="svg-wrap"><p class="hint">条件を入力すると断面図が表示されます。</p></div>
+      <div class="block-head">
+        <h2>3. 図</h2>
+        <div class="tabs" role="tablist">
+          <button type="button" class="tab active" data-view="section">断面図</button>
+          <button type="button" class="tab" data-view="site">配置図</button>
+          <button type="button" class="tab" data-view="floors">各階平面図</button>
+        </div>
+      </div>
+      <div id="svg" class="svg-wrap" data-view="section">
+        <p class="hint">条件を入力すると図が表示されます。</p>
+      </div>
+      <div id="svg-site" class="svg-wrap" hidden></div>
+      <div id="svg-floors" class="svg-wrap" hidden></div>
     </div>
 
     <div class="block">

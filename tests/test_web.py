@@ -393,3 +393,124 @@ def test_deployment_files_exist_and_are_consistent():
 
     for pattern in (".venv/", "__pycache__/", "out/", "tests/"):
         assert pattern in dockerignore, f"{pattern} が .dockerignore にない"
+
+
+# ---------------------------------------------------------------------------
+# 配置図・各階平面図のSVG
+# ---------------------------------------------------------------------------
+
+NS = "{http://www.w3.org/2000/svg}"
+
+
+def _rects(svg: str, cls: str) -> list:
+    return ET.fromstring(svg).findall(f"{NS}rect[@class='{cls}']")
+
+
+def _rect_box(el) -> tuple[float, float, float, float]:
+    x, y = float(el.get("x")), float(el.get("y"))
+    return x, y, x + float(el.get("width")), y + float(el.get("height"))
+
+
+@pytest.mark.parametrize("sample", ["case_road6", "case_road12"])
+def test_site_plan_svg(sample):
+    from web.svg_plan import render_site_plan
+
+    result = solve(VolumeInput.from_json_file(SAMPLES / f"{sample}.json"))
+    svg = render_site_plan(result)
+    root = ET.fromstring(svg)
+
+    assert len(root.findall(f"{NS}rect[@class='site']")) == 1
+    assert len(root.findall(f"{NS}rect[@class='road']")) == 1
+    assert len(root.findall(f"{NS}rect[@class='ghost']")) == 1
+    # 1階（塗り）と最上階（破線）
+    assert len(root.findall(f"{NS}rect[@class='floor']")) == 1
+    assert len(root.findall(f"{NS}rect[@class='floor-top']")) == 1
+
+    texts = [t.text for t in root.iter(f"{NS}text")]
+    assert "N" in texts, "方位記号がない"
+    assert any(t and "前面道路" in t for t in texts)
+    assert any(t and t.startswith("1F") for t in texts)
+    # 間口・奥行の寸法
+    assert f"{result.input.site.frontage_mm / 1000:,.2f}m" in texts
+    assert f"{result.input.site.depth_mm / 1000:,.2f}m" in texts
+
+
+def test_site_plan_nests_the_building_inside_the_site():
+    """1階外形は敷地の内側、最上階はさらにその内側にある。"""
+    from web.svg_plan import render_site_plan
+
+    svg = render_site_plan(solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json")))
+    site = _rect_box(_rects(svg, "site")[0])
+    f1 = _rect_box(_rects(svg, "floor")[0])
+    top = _rect_box(_rects(svg, "floor-top")[0])
+
+    assert site[0] <= f1[0] and site[1] <= f1[1]
+    assert f1[2] <= site[2] and f1[3] <= site[3]
+    assert f1[0] <= top[0] and f1[2] >= top[2], "最上階が1階より外に出ている"
+
+
+@pytest.mark.parametrize("road_side,expected", [
+    ("south", "below"), ("north", "above"), ("east", "right"), ("west", "left"),
+])
+def test_site_plan_puts_the_road_on_the_given_side(road_side, expected):
+    """方位に応じて道路が正しい側に描かれる（図は常に北が上）。"""
+    from web.svg_plan import render_site_plan
+
+    body = payload()
+    body["site"]["road_side"] = road_side
+    svg = render_site_plan(solve(VolumeInput.from_dict(body)))
+    sx0, sy0, sx1, sy1 = _rect_box(_rects(svg, "site")[0])
+    rx0, ry0, rx1, ry1 = _rect_box(_rects(svg, "road")[0])
+
+    # SVG は Y が下向き
+    if expected == "below":
+        assert ry0 >= sy1 - 1
+    elif expected == "above":
+        assert ry1 <= sy0 + 1
+    elif expected == "right":
+        assert rx0 >= sx1 - 1
+    else:
+        assert rx1 <= sx0 + 1
+
+
+@pytest.mark.parametrize("sample", ["case_road6", "case_road12"])
+def test_floor_plans_svg(sample):
+    from web.svg_plan import render_floor_plans
+
+    result = solve(VolumeInput.from_json_file(SAMPLES / f"{sample}.json"))
+    svg = render_floor_plans(result)
+    root = ET.fromstring(svg)
+
+    # 階ごとに 敷地・ゴースト・外形 が1組ずつ
+    def count(cls: str) -> int:
+        return sum(1 for e in root.iter(f"{NS}rect") if e.get("class") == cls)
+
+    assert count("floor") == result.floor_count
+    assert count("site") == result.floor_count
+    assert count("ghost") == result.floor_count
+
+    texts = [t.text for t in root.iter(f"{NS}text")]
+    # 上階から並べる
+    labels = [t for t in texts if t and t.endswith("F")]
+    assert labels[0] == f"{result.floor_count}F"
+    assert labels[-1] == "1F"
+    for f in result.floors:
+        assert f"{f.floor}F" in labels
+
+
+def test_floor_plans_is_empty_when_no_floors():
+    from web.svg_plan import render_floor_plans
+
+    body = payload()
+    body["site"]["frontage"] = 8.0
+    body["site"]["depth"] = 10.0
+    result = solve(VolumeInput.from_dict(body))
+    assert result.floor_count == 0
+    assert render_floor_plans(result) == ""
+
+
+def test_solve_returns_all_three_drawings():
+    data = client.post("/api/solve", json=payload()).json()
+    for key in ("svg", "svg_site_plan", "svg_floor_plans"):
+        assert data[key], f"{key} が空"
+        ET.fromstring(data[key])

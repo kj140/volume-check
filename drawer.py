@@ -28,6 +28,7 @@ import ezdxf
 from ezdxf.enums import TextEntityAlignment as TA
 
 import constants as C
+import plan as P
 import section as S
 from models import RoadSide, VolumeResult
 
@@ -200,52 +201,8 @@ def _dim(msp, p1, p2, base, text: str = "<>"):
 # 配置図
 # ---------------------------------------------------------------------------
 
-# 前面道路の方位ごとの、敷地ローカル座標から図面座標への回転。
-#   v = 道路から敷地奥へ向かう方向（ローカル +y）
-#   u = 道路に平行な方向（ローカル +x） = v を時計回りに 90 度回した向き
-# いずれの方位でも図面は「北が上」になる。
-_ROAD_VECTORS: dict[RoadSide, tuple[float, float]] = {
-    RoadSide.SOUTH: (0.0, 1.0),    # 道路が南 → 敷地は道路の北側
-    RoadSide.NORTH: (0.0, -1.0),
-    RoadSide.EAST: (-1.0, 0.0),
-    RoadSide.WEST: (1.0, 0.0),
-}
-
 _PLAN_SIDE_PAD = 4000.0    # 道路を敷地の左右にはみ出させる長さ・寸法線の余地
 _PLAN_DIM_PAD = 5000.0     # 道路側／奥側の寸法線のための余地
-
-
-class _PlanFrame:
-    """敷地ローカル座標 (x, y) → 図面座標への変換。"""
-
-    def __init__(self, road_side: RoadSide, base_x: float, base_y: float,
-                 local_bbox: tuple[float, float, float, float]):
-        vx, vy = _ROAD_VECTORS[road_side]
-        self._u = (vy, -vx)
-        self._v = (vx, vy)
-        x0, y0, x1, y1 = local_bbox
-        corners = [self._rot(x, y) for x in (x0, x1) for y in (y0, y1)]
-        self._ox = base_x - min(c[0] for c in corners)
-        self._oy = base_y - min(c[1] for c in corners)
-
-    def _rot(self, x: float, y: float) -> tuple[float, float]:
-        return (x * self._u[0] + y * self._v[0], x * self._u[1] + y * self._v[1])
-
-    def __call__(self, x: float, y: float) -> tuple[float, float]:
-        rx, ry = self._rot(x, y)
-        return (rx + self._ox, ry + self._oy)
-
-
-def _sheet_bbox(frame: _PlanFrame, x0: float, y0: float, x1: float, y1: float):
-    """ローカル矩形を図面座標に変換したときの (minx, miny, maxx, maxy)。
-
-    方位によって回転がかかるため、ラベルの位置決めはローカル座標のオフセットでは
-    なくこの図面座標のバウンディングボックスを基準にする。
-    """
-    pts = [frame(x, y) for x in (x0, x1) for y in (y0, y1)]
-    xs = [q[0] for q in pts]
-    ys = [q[1] for q in pts]
-    return min(xs), min(ys), max(xs), max(ys)
 
 
 def _plan_local_bbox(r: VolumeResult) -> tuple[float, float, float, float]:
@@ -271,7 +228,7 @@ def _plan_size(r: VolumeResult) -> tuple[float, float]:
 
 def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
     site = r.input.site
-    frame = _PlanFrame(site.road_side, ox + MARGIN, oy + MARGIN, _plan_local_bbox(r))
+    frame = P.Frame(site.road_side, ox + MARGIN, oy + MARGIN, _plan_local_bbox(r))
     F, D, W = site.frontage_mm, site.depth_mm, site.road_width_mm
     _, block_h = _plan_size(r)
 
@@ -288,7 +245,7 @@ def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
           "S-ROAD", LT_CENTER)
     # 道路が図面上で縦に走る（東西の前面道路）ときは文字も 90 度回す。
     # 中心線に重ならないよう、敷地と反対側へ少しずらす。
-    vx, vy = _ROAD_VECTORS[site.road_side]
+    vx, vy = P.ROAD_VECTORS[site.road_side]
     road_label = frame(F * 0.5, -W * 0.5)
     _text(msp, f"前面道路 W={W / MM:.1f}m（{ROAD_SIDE_LABEL[site.road_side]}側）",
           (road_label[0] - vx * 900.0, road_label[1] - vy * 900.0),
@@ -310,7 +267,7 @@ def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
              frame(f1.x_max_mm, f1.y_max_mm), frame(f1.x_min_mm, f1.y_max_mm)],
             close=True, dxfattribs={"layer": "A-OUTL"},
         )
-        bx0, by0, _, _ = _sheet_bbox(frame, f1.x_min_mm, f1.y_min_mm,
+        bx0, by0, _, _ = frame.bbox(f1.x_min_mm, f1.y_min_mm,
                                      f1.x_max_mm, f1.y_max_mm)
         _text(msp, f"1F 外形 {f1.gross_area_mm2 / M2:,.1f}m2",
               (bx0 + 700, by0 + 700), H_TEXT, "A-TEXT")
@@ -322,7 +279,7 @@ def _draw_plan(msp, r: VolumeResult, ox: float, oy: float) -> None:
                  frame(ft.x_max_mm, ft.y_max_mm), frame(ft.x_min_mm, ft.y_max_mm)],
                 close=True, dxfattribs={"layer": "A-OUTL", "linetype": LT_DASHED},
             )
-            tx0, _, _, ty1 = _sheet_bbox(frame, ft.x_min_mm, ft.y_min_mm,
+            tx0, _, _, ty1 = frame.bbox(ft.x_min_mm, ft.y_min_mm,
                                          ft.x_max_mm, ft.y_max_mm)
             _text(msp, f"{ft.floor}F 外形（破線）{ft.gross_area_mm2 / M2:,.1f}m2",
                   (tx0 + 700, ty1 - 700 - H_TEXT), H_TEXT, "A-TEXT")

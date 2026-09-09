@@ -40,6 +40,7 @@ from solver import solve                                   # noqa: E402
 
 from . import zoning                                       # noqa: E402
 from .geo import frontage_depth_m                          # noqa: E402
+from .svg_plan import render_floor_plans, render_site_plan  # noqa: E402
 from .svg_section import render as render_svg              # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -304,6 +305,8 @@ def api_solve(payload: VolumeIn) -> dict:
         ],
         "notes": list(r.notes),
         "svg": render_svg(r),
+        "svg_site_plan": render_site_plan(r),
+        "svg_floor_plans": render_floor_plans(r),
     }
 
 

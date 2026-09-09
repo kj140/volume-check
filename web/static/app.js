@@ -273,8 +273,23 @@ function renderConstraints(data) {
        また階数が増える分は含んでいません（少なめに出ます）。</p>`;
 }
 
+// --- 図の切り替え（断面図 / 配置図 / 各階平面図）-----------------------------
+const VIEWS = { section: "#svg", site: "#svg-site", floors: "#svg-floors" };
+
+document.querySelectorAll(".tab").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
+    for (const [name, sel] of Object.entries(VIEWS)) {
+      $(sel).hidden = name !== tab.dataset.view;
+    }
+  });
+});
+
 function render(data) {
   $("#svg").innerHTML = data.svg;
+  $("#svg-site").innerHTML = data.svg_site_plan || "";
+  $("#svg-floors").innerHTML =
+    data.svg_floor_plans || `<p class="hint">建築可能な階が成立しません。</p>`;
   renderConstraints(data);
 
   const s = data.summary;
