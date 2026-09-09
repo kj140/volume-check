@@ -142,9 +142,9 @@ def test_svg_is_wellformed_and_matches_section_geometry(sample):
     assert root.tag.endswith("svg")
 
     ns = "{http://www.w3.org/2000/svg}"
-    rects = root.findall(f"{ns}rect")
-    # 背景1枚 + 各階
-    assert len(rects) == result.floor_count + 1
+    # 階の矩形は class="floor" で識別する（背景・ゴースト・凡例と区別）
+    assert len(root.findall(f"{ns}rect[@class='floor']")) == result.floor_count
+    assert len(root.findall(f"{ns}rect[@class='ghost']")) == 1, "制限なし外形のゴーストがない"
 
     geom = S.build(result)
     polylines = root.findall(f"{ns}polyline")

@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import constants as C  # noqa: E402
+import models as C_  # noqa: E402
 from models import StopReason, VolumeInput  # noqa: E402
 from solver import solve  # noqa: E402
 
@@ -481,3 +482,111 @@ def test_slant_margin_equals_wall_setback_effect_when_road_slant_governs():
     for f, road_margin, _ in _slant_margins(r):
         if f.setback_road_mm > 0:
             assert road_margin == pytest.approx(edge * r.road_slant_gradient, abs=1.0)
+
+
+# ---------------------------------------------------------------------------
+# どの規定がボリュームを削っているか
+# ---------------------------------------------------------------------------
+
+
+def test_impacts_are_the_marginal_gain_of_relaxing_each_rule():
+    """各規定の増分は「その規定だけを外したときの床面積の増分」に一致する。
+
+    道路12m・商業の 8階（天端33.90m）で手計算:
+      建蔽率の絞り込み t = (48 - sqrt(2020)) / 4 = 0.76389749m
+      外壁後退0.5m と合わせて 1周あたり 1.26389749m を内側に寄せる。
+
+      実際       (20 - 2×1.16 - 2×1.264) × (30 - 10.6 - 1.16 - 2×1.264)
+                 = 15.15221 × 15.71221 = 238.07455m2
+      道路斜線なし 15.15221 × 26.31221 = 398.68793m2 → 増分 160.61337m2
+      隣地斜線なし 17.47221 × 16.87221 = 294.79463m2 → 増分  56.72007m2
+    """
+    r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
+    f8 = r.floors[7]
+    assert f8.floor == 8
+    assert f8.gross_area_mm2 == pytest.approx(238.07455 * M2, rel=1e-6)
+    gains = {i.constraint: i.area_gain_mm2 for i in f8.impacts}
+    assert gains[C_.Constraint.ROAD_SLANT] == pytest.approx(160.61337 * M2, rel=1e-6)
+    assert gains[C_.Constraint.NEIGHBOR_SLANT] == pytest.approx(56.72007 * M2, rel=1e-6)
+
+
+def test_impacts_are_sorted_and_non_negative():
+    for name in ("case_road6", "case_road12"):
+        r = solve(VolumeInput.from_json_file(SAMPLES / f"{name}.json"))
+        for f in r.floors:
+            gains = [i.area_gain_mm2 for i in f.impacts]
+            assert all(g > 0 for g in gains), f"{f.floor}階に増分0以下の要因がある"
+            assert gains == sorted(gains, reverse=True), f"{f.floor}階の並びが降順でない"
+            assert f.dominant_constraint == f.impacts[0].constraint
+
+
+def test_impacts_only_list_rules_that_actually_apply():
+    """後退量が0の規定は要因に挙げない。"""
+    r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
+    for f in r.floors:
+        listed = set(f.constraints)
+        if f.setback_road_mm == 0:
+            assert C_.Constraint.ROAD_SLANT not in listed, f"{f.floor}階"
+        if f.setback_neighbor_mm == 0:
+            assert C_.Constraint.NEIGHBOR_SLANT not in listed, f"{f.floor}階"
+        if r.bcr_inset_mm == 0:
+            assert C_.Constraint.BCR not in listed, f"{f.floor}階"
+
+
+def test_no_impacts_when_nothing_constrains_the_floor():
+    """斜線も建蔽率もかからない条件では要因が空になる。"""
+    r = solve(make(
+        site={"road_width": 30.0, "frontage": 60.0, "depth": 60.0},
+        zoning={"bcr": 1.0, "far_designated": 20.0},
+        program={"max_floors": 1},
+    ))
+    f1 = r.floors[0]
+    assert f1.impacts == ()
+    assert f1.dominant_constraint is None
+    assert f1.governing == "敷地形状・外壁後退のみ"
+    assert f1.area_loss_mm2 == pytest.approx(0.0, abs=1.0)
+
+
+def test_area_loss_is_the_gap_from_the_unconstrained_footprint():
+    """削減量 = 外壁後退のみの面積 - 実面積。"""
+    inp = VolumeInput.from_json_file(SAMPLES / "case_road12.json")
+    r = solve(inp)
+    setback = inp.program.wall_setback_mm
+    expected = ((inp.site.frontage_mm - 2 * setback)
+                * (inp.site.depth_mm - 2 * setback))
+    for f in r.floors:
+        assert f.unconstrained_area_mm2 == pytest.approx(expected)
+        assert f.area_loss_mm2 == pytest.approx(expected - f.gross_area_mm2)
+    assert r.total_area_loss_mm2 == pytest.approx(
+        sum(f.area_loss_mm2 for f in r.floors)
+    )
+
+
+def test_constraint_gains_are_aggregated_and_sorted():
+    r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
+    gains = r.constraint_gains_mm2()
+    assert list(gains) == sorted(gains, key=gains.get, reverse=True)
+    assert r.dominant_constraint is next(iter(gains))
+    # 道路12m・商業では道路斜線が最大の要因
+    assert r.dominant_constraint is C_.Constraint.ROAD_SLANT
+    for constraint, total in gains.items():
+        per_floor = sum(i.area_gain_mm2 for f in r.floors for i in f.impacts
+                        if i.constraint is constraint)
+        assert total == pytest.approx(per_floor)
+
+
+def test_wider_road_reduces_the_road_slant_impact():
+    """幅員を広げると道路斜線による削減が小さくなる。"""
+    narrow = solve(make(site={"road_width": 6.0}))
+    wide = solve(make(site={"road_width": 12.0}))
+    key = C_.Constraint.ROAD_SLANT
+    # 同じ階どうしで比べる（階数が違うため）
+    for a, b in zip(narrow.floors, wide.floors):
+        ga = next((i.area_gain_mm2 for i in a.impacts if i.constraint is key), 0.0)
+        gb = next((i.area_gain_mm2 for i in b.impacts if i.constraint is key), 0.0)
+        assert gb <= ga + 1.0, f"{a.floor}階: 幅員を広げたのに道路斜線の影響が増えた"
+
+
+def test_every_constraint_has_a_statutory_basis():
+    for constraint in C_.Constraint:
+        assert constraint.basis.startswith("法"), constraint

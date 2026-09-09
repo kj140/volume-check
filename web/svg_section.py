@@ -15,7 +15,7 @@ from xml.sax.saxutils import escape
 
 import constants as C
 import section as S
-from models import VolumeResult
+from models import Constraint, VolumeResult
 
 MM = C.M_TO_MM
 
@@ -23,21 +23,30 @@ VIEW_W = 940.0            # SVG の論理幅[px]
 PAD_LEFT = 74.0           # 最高高さ寸法のための左余白
 PAD_RIGHT = 150.0         # レベル文字欄
 PAD_TOP = 34.0
-PAD_BOTTOM = 62.0         # GL より下の道路名・境界名・注記
+PAD_BOTTOM = 92.0         # GL より下の道路名・境界名・注記・凡例
 
 COLORS = {
     "bg": "#ffffff",
     "ground": "#334155",
     "road": "#94a3b8",
     "boundary": "#94a3b8",
-    "slant": "#dc2626",
     "limit": "#ea580c",
-    "building": "#fde68a",
-    "building_line": "#b45309",
     "level": "#16a34a",
     "text": "#0f172a",
     "muted": "#64748b",
+    "ghost": "#cbd5e1",
 }
+
+# 各階を「最も大きく削っている規定」で塗り分ける。斜線の線色と塗りの色を
+# 揃えてあるので、どの線がその階を削ったのかが対応で読める。
+CONSTRAINT_COLORS: dict[Constraint | None, tuple[str, str]] = {
+    # 規定: (塗り, 線)
+    Constraint.ROAD_SLANT: ("#fecaca", "#dc2626"),
+    Constraint.NEIGHBOR_SLANT: ("#bfdbfe", "#2563eb"),
+    Constraint.BCR: ("#fde68a", "#b45309"),
+    None: ("#e2e8f0", "#64748b"),      # 斜線も建蔽率もかかっていない階
+}
+NO_CONSTRAINT_LEGEND = "制限なし"
 
 
 def _esc(s: object) -> str:
@@ -78,11 +87,12 @@ class _Canvas:
             f' stroke-width="{width}"{d}/>'
         )
 
-    def rect(self, y0, z0, y1, z1, fill, stroke, width=1.2):
+    def rect(self, y0, z0, y1, z1, fill, stroke, width=1.2, cls=""):
         x0, x1 = self.x(y0), self.x(y1)
         yy0, yy1 = self.y(z1), self.y(z0)
+        klass = f' class="{cls}"' if cls else ""
         self.parts.append(
-            f'<rect x="{x0:.2f}" y="{yy0:.2f}" width="{x1 - x0:.2f}"'
+            f'<rect{klass} x="{x0:.2f}" y="{yy0:.2f}" width="{x1 - x0:.2f}"'
             f' height="{yy1 - yy0:.2f}" fill="{fill}" stroke="{stroke}"'
             f' stroke-width="{width}"/>'
         )
@@ -127,23 +137,38 @@ def render(result: VolumeResult) -> str:
                   fill=COLORS["muted"])
     c.line(-w, 0, -w, z_max * 0.12, COLORS["boundary"], 1.0, dash="6 4")
 
+    # --- 制限がかからなかった場合の外形（ゴースト） --------------------------
+    # 実際の形との差が、規制で削られた分になる。
+    if geom.unconstrained_y_mm is not None and geom.floors:
+        gy0, gy1 = geom.unconstrained_y_mm
+        c.parts.append(
+            f'<rect class="ghost" x="{c.x(gy0):.2f}" y="{c.y(geom.max_height_mm):.2f}"'
+            f' width="{c.x(gy1) - c.x(gy0):.2f}"'
+            f' height="{c.y(0) - c.y(geom.max_height_mm):.2f}"'
+            f' fill="none" stroke="{COLORS["ghost"]}" stroke-width="1.2"'
+            f' stroke-dasharray="4 4"/>'
+        )
+
     # --- 斜線 --------------------------------------------------------------
-    c.polyline(geom.road_slant, COLORS["slant"], 1.8, dash="9 5")
+    road_color = CONSTRAINT_COLORS[Constraint.ROAD_SLANT][1]
+    neighbor_color = CONSTRAINT_COLORS[Constraint.NEIGHBOR_SLANT][1]
+
+    c.polyline(geom.road_slant, road_color, 1.8, dash="9 5")
     if geom.road_slant_capped:
         cap_y, cap_z = geom.road_slant[1]
         c.text(cap_y, cap_z, f"適用距離 {geom.applicable_distance_mm / MM:.0f}m",
-               anchor="end", size=10, fill=COLORS["slant"], dx=-6, dy=-6)
+               anchor="end", size=10, fill=road_color, dx=-6, dy=-6)
     label_z = z_max * 0.5
     c.text(-w + label_z / geom.road_gradient, label_z,
            f"道路斜線 1:{geom.road_gradient}", anchor="end", size=11,
-           fill=COLORS["slant"], dx=-8, dy=-4)
+           fill=road_color, dx=-8, dy=-4)
 
     if geom.neighbor_slant is not None:
-        c.polyline(geom.neighbor_slant, COLORS["slant"], 1.8, dash="9 5")
+        c.polyline(geom.neighbor_slant, neighbor_color, 1.8, dash="9 5")
         top_y = geom.neighbor_slant[-1][0]
         c.text(top_y, z_max, f"隣地斜線 立上り{geom.neighbor_start_mm / MM:.0f}m"
                              f" 1:{geom.neighbor_gradient}",
-               anchor="end", size=11, fill=COLORS["slant"], dx=-6, dy=14)
+               anchor="end", size=11, fill=neighbor_color, dx=-6, dy=14)
 
     if geom.height_limit_mm is not None:
         limit = geom.height_limit_mm
@@ -154,8 +179,8 @@ def render(result: VolumeResult) -> str:
     # --- 建物断面・各階レベル ----------------------------------------------
     text_x = c.x(d) + 16
     for f in geom.floors:
-        c.rect(f.y_min_mm, f.z_min_mm, f.y_max_mm, f.z_max_mm,
-               COLORS["building"], COLORS["building_line"])
+        fill, stroke = CONSTRAINT_COLORS[f.dominant]
+        c.rect(f.y_min_mm, f.z_min_mm, f.y_max_mm, f.z_max_mm, fill, stroke, cls="floor")
         c.line(f.y_max_mm, f.z_min_mm, d, f.z_min_mm, COLORS["level"], 1.0, opacity=0.7)
         c.text_px(text_x, c.y(f.z_min_mm) - 3, f"{f.floor}FL  +{f.z_min_mm / MM:,.2f}m",
                   size=10, fill=COLORS["text"])
@@ -181,9 +206,43 @@ def render(result: VolumeResult) -> str:
     if geom.neighbor_note:
         c.text_px(text_x, c.y(0) + 34, geom.neighbor_note, size=10, fill=COLORS["muted"])
 
+    _draw_legend(c, geom)
+
     body = "".join(c.parts)
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {VIEW_W:.0f}'
         f' {c.height:.0f}" width="100%" style="max-width:{VIEW_W:.0f}px"'
         f' font-family="system-ui, sans-serif">{body}</svg>'
     )
+
+
+def _draw_legend(c: _Canvas, geom: S.SectionGeometry) -> None:
+    """各階の塗り分けの凡例。実際に現れた規定だけを出す。"""
+    used: list[Constraint | None] = []
+    for f in geom.floors:
+        if f.dominant not in used:
+            used.append(f.dominant)
+    if not used:
+        return
+
+    y = c.height - 22.0
+    x = PAD_LEFT
+    c.text_px(x, y, "各階の色 = その階を最も削っている規定：", size=10,
+              fill=COLORS["muted"])
+    x += 190.0
+    for constraint in used:
+        fill, stroke = CONSTRAINT_COLORS[constraint]
+        label = constraint.value if constraint else NO_CONSTRAINT_LEGEND
+        c.parts.append(
+            f'<rect class="legend" x="{x:.2f}" y="{y - 9:.2f}" width="12" height="12"'
+            f' fill="{fill}" stroke="{stroke}" stroke-width="1.2"/>'
+        )
+        c.text_px(x + 17, y, label, size=10)
+        x += 22.0 + len(label) * 11.0
+
+    c.parts.append(
+        f'<line x1="{x + 4:.2f}" y1="{y - 3:.2f}" x2="{x + 26:.2f}" y2="{y - 3:.2f}"'
+        f' stroke="{COLORS["ghost"]}" stroke-width="1.2" stroke-dasharray="4 4"/>'
+    )
+    c.text_px(x + 31, y, "斜線・建蔽率がない場合の範囲（同じ高さで）", size=10,
+              fill=COLORS["muted"])

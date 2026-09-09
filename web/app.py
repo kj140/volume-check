@@ -147,7 +147,27 @@ def _summary(r: VolumeResult) -> dict:
         ),
         "stop_reason": r.stop_reason.value if r.stop_reason else None,
         "stop_detail": r.stop_detail,
+        # 規制がかからなかった場合との差
+        "unconstrained_area_m2": round(
+            sum(f.unconstrained_area_mm2 for f in r.floors) / M2, 2
+        ),
+        "total_area_loss_m2": round(r.total_area_loss_mm2 / M2, 2),
+        "dominant_constraint": (
+            r.dominant_constraint.value if r.dominant_constraint else None
+        ),
     }
+
+
+def _constraint_gains(r: VolumeResult) -> list[dict]:
+    """どの規定がどれだけボリュームを削っているか（増分の大きい順）。"""
+    return [
+        {
+            "constraint": c.value,
+            "basis": c.basis,
+            "area_gain_m2": round(gain / M2, 2),
+        }
+        for c, gain in r.constraint_gains_mm2().items()
+    ]
 
 
 def _floors(r: VolumeResult) -> list[dict]:
@@ -168,6 +188,15 @@ def _floors(r: VolumeResult) -> list[dict]:
             "setback_road_m": round(f.setback_road_mm / MM, 2),
             "setback_neighbor_m": round(f.setback_neighbor_mm / MM, 2),
             "governing": f.governing,
+            "dominant_constraint": (
+                f.dominant_constraint.value if f.dominant_constraint else None
+            ),
+            "area_loss_m2": round(f.area_loss_mm2 / M2, 2),
+            "impacts": [
+                {"constraint": i.constraint.value,
+                 "area_gain_m2": round(i.area_gain_mm2 / M2, 2)}
+                for i in f.impacts
+            ],
         })
     return rows
 
@@ -269,6 +298,7 @@ def api_solve(payload: VolumeIn) -> dict:
     return {
         "summary": _summary(r),
         "floors": _floors(r),
+        "constraint_gains": _constraint_gains(r),
         "applied_rules": [
             {"label": x.label, "value": x.value, "basis": x.basis} for x in r.applied_rules
         ],

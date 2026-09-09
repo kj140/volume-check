@@ -62,6 +62,7 @@ LAYERS: tuple[tuple[str, str, int, str, int], ...] = (
     ("A-SLNT", "斜線", 1, LT_DASHDOT, -3),
     ("A-DIMS", "寸法", 3, "CONTINUOUS", -3),
     ("A-TEXT", "文字", 7, "CONTINUOUS", -3),
+    ("A-ENVL", "斜線・建蔽率がない場合の範囲", 8, LT_DASHED, -3),
 )
 
 DISCLAIMER = (
@@ -445,13 +446,23 @@ def _draw_section(msp, r: VolumeResult, ox: float, oy: float) -> None:
         _text(msp, f"絶対高さ制限 {limit / MM:.1f}m", p(-W - 1500, limit + 500),
               H_SMALL, "A-TEXT")
 
+    # --- 制限がなければ建てられた範囲（実形との差が削られた分） ----------------
+    if geom.unconstrained_y_mm is not None and geom.floors:
+        gy0, gy1 = geom.unconstrained_y_mm
+        _rect(msp, *p(gy0, 0.0), *p(gy1, geom.max_height_mm), "A-ENVL")
+        _text(msp, "斜線・建蔽率がなければ建てられた範囲（同じ高さで）",
+              p(gy0 + 400, geom.max_height_mm + 400),
+              H_SMALL, "A-TEXT")
+
     # --- 建物断面・各階レベル -------------------------------------------------
     text_x = D + _SEC_LEVEL_GAP
     for f in geom.floors:
         _rect(msp, *p(f.y_min_mm, f.z_min_mm), *p(f.y_max_mm, f.z_max_mm), "A-OUTL")
         _line(msp, p(f.y_max_mm, f.z_min_mm), p(text_x - 500, f.z_min_mm), "A-DIMS")
-        _text(msp, f"{f.floor}FL  +{f.z_min_mm / MM:,.2f}m", p(text_x, f.z_min_mm + 250),
-              H_TEXT, "A-TEXT")
+        label = f"{f.floor}FL  +{f.z_min_mm / MM:,.2f}m"
+        if f.dominant is not None:
+            label += f"  （{f.dominant.value}）"
+        _text(msp, label, p(text_x, f.z_min_mm + 250), H_TEXT, "A-TEXT")
 
     if r.floors:
         top = r.max_height_mm
@@ -555,6 +566,8 @@ def _title_items(r: VolumeResult) -> list[tuple[str, str]]:
                      f"（容積対象 {r.total_far_area_mm2 / M2:,.2f} m2）"),
         ("貸室面積", f"{r.total_rentable_area_mm2 / M2:,.2f} m2"
                      f"（コア比率 {r.input.program.core_ratio * 100:.0f}%）"),
+        ("規制による削減", f"{r.total_area_loss_mm2 / M2:,.2f} m2"
+                            f"（制限なしなら {sum(f.unconstrained_area_mm2 for f in r.floors) / M2:,.2f} m2）"),
         ("打ち切り理由", f"{r.stop_reason.value if r.stop_reason else '-'}"),
         ("", f"（{r.stop_detail}）"),
         ("作成日時", _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
@@ -572,8 +585,10 @@ def _footer_size(r: VolumeResult, total_w: float) -> tuple[float, float]:
     items, rules, notes = _footer_parts(r)
     disclaimer_h = (DISCLAIMER.count("\n") + 1) * H_TEXT * 1.7
     left_h = H_HEAD * 2.0 + len(items) * H_TEXT * 1.7
+    gains = r.constraint_gains_mm2()
     right_h = (H_HEAD * 2.0 + len(rules) * H_SMALL * 1.7
-               + H_HEAD * 2.0 + len(notes) * H_SMALL * 1.7)
+               + H_HEAD * 2.0 + len(notes) * H_SMALL * 1.7
+               + (H_HEAD * 2.2 + len(gains) * H_SMALL * 1.7 if gains else 0.0))
     return total_w, MARGIN + disclaimer_h + GAP + max(left_h, right_h) + MARGIN
 
 
@@ -620,3 +635,16 @@ def _draw_footer(msp, r: VolumeResult, ox: float, oy: float,
     for line in notes:
         _text(msp, line, (x_right, yy), H_SMALL, "A-TEXT")
         yy -= H_SMALL * 1.7
+
+    # --- ボリュームを削っている規定 -------------------------------------------
+    gains = r.constraint_gains_mm2()
+    if gains:
+        yy -= H_HEAD * 0.6
+        _text(msp, "ボリュームを削っている規定", (x_right, yy), H_HEAD, "A-TEXT")
+        yy -= H_HEAD * 1.6
+        for constraint, gain in gains.items():
+            _text(msp,
+                  f"・{constraint.value}：この制限だけを外すと 延床 +{gain / M2:,.1f} m2"
+                  f"　［{constraint.basis}］",
+                  (x_right, yy), H_SMALL, "A-TEXT")
+            yy -= H_SMALL * 1.7

@@ -22,7 +22,10 @@ import math
 
 import constants as C
 from models import (
+    NO_CONSTRAINT_LABEL,
     AppliedRule,
+    Constraint,
+    ConstraintImpact,
     FloorResult,
     StopReason,
     VolumeInput,
@@ -167,7 +170,7 @@ def solve(inp: VolumeInput) -> VolumeResult:
                 sb_road=sb_road,
                 sb_neighbor=sb_neighbor,
                 inset_mm=bcr_inset_mm,
-                governing=_governing(sb_road, sb_neighbor, bcr_inset_mm, road_capped),
+                road_capped=road_capped,
             )
         )
         cumulative_far_mm2 += area_mm2
@@ -249,6 +252,38 @@ def _bcr_inset(width_mm: float, depth_mm: float, max_building_area_mm2: float) -
     return (s - math.sqrt(disc)) / 4.0
 
 
+def _area(site, program, sb_road: float, sb_neighbor: float, inset_mm: float) -> float:
+    """後退量の組み合わせに対する床面積。潰れる場合は 0。"""
+    w, d = _footprint_size(site, program, sb_road, sb_neighbor, inset_mm)
+    return w * d if w > 0 and d > 0 else 0.0
+
+
+def _impacts(site, program, sb_road: float, sb_neighbor: float,
+             inset_mm: float) -> tuple[ConstraintImpact, ...]:
+    """その階を削っている規定ごとの限界寄与を求める。
+
+    「その規定だけを外したら床面積がどれだけ増えるか」を規定ごとに計算する。
+    規定どうしは掛け算で効くので合計は実際の減少量と一致しないが、
+    「この制限が外れたら何m2増えるか」という設計上の判断には直接使える。
+    """
+    actual = _area(site, program, sb_road, sb_neighbor, inset_mm)
+    candidates = (
+        (Constraint.ROAD_SLANT, sb_road,
+         _area(site, program, 0.0, sb_neighbor, inset_mm)),
+        (Constraint.NEIGHBOR_SLANT, sb_neighbor,
+         _area(site, program, sb_road, 0.0, inset_mm)),
+        (Constraint.BCR, inset_mm,
+         _area(site, program, sb_road, sb_neighbor, 0.0)),
+    )
+    impacts = [
+        ConstraintImpact(constraint=c, area_gain_mm2=relaxed - actual, setback_mm=amount)
+        for c, amount, relaxed in candidates
+        if amount > _LENGTH_EPS_MM and relaxed - actual > _AREA_EPS_MM2
+    ]
+    impacts.sort(key=lambda i: i.area_gain_mm2, reverse=True)
+    return tuple(impacts)
+
+
 def _make_floor(
     *,
     floor: int,
@@ -259,9 +294,10 @@ def _make_floor(
     sb_road: float,
     sb_neighbor: float,
     inset_mm: float,
-    governing: str,
+    road_capped: bool,
 ) -> FloorResult:
     edge = program.wall_setback_mm + inset_mm
+    impacts = _impacts(site, program, sb_road, sb_neighbor, inset_mm)
     return FloorResult(
         floor=floor,
         level_mm=level_mm,
@@ -272,7 +308,11 @@ def _make_floor(
         y_max_mm=site.depth_mm - edge - sb_neighbor,
         setback_road_mm=sb_road,
         setback_neighbor_mm=sb_neighbor,
-        governing=governing,
+        governing=_governing(sb_road, sb_neighbor, inset_mm, road_capped),
+        impacts=impacts,
+        road_slant_capped=road_capped,
+        # 斜線も建蔽率もかからず、外壁後退だけを引いた場合の床面積
+        unconstrained_area_mm2=_area(site, program, 0.0, 0.0, 0.0),
     )
 
 
@@ -285,7 +325,7 @@ def _governing(sb_road: float, sb_neighbor: float, inset_mm: float, road_capped:
     if inset_mm > _LENGTH_EPS_MM:
         parts.append("建蔽率")
     if not parts:
-        return "敷地形状・外壁後退のみ"
+        return NO_CONSTRAINT_LABEL
     return " + ".join(parts)
 
 

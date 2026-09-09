@@ -33,6 +33,40 @@ class RoadSide(str, Enum):
     WEST = "west"
 
 
+class Constraint(str, Enum):
+    """その階の形状を削っている規定。"""
+
+    ROAD_SLANT = "道路斜線"
+    NEIGHBOR_SLANT = "隣地斜線"
+    BCR = "建蔽率"
+
+    @property
+    def basis(self) -> str:
+        return {
+            Constraint.ROAD_SLANT: "法56条1項1号",
+            Constraint.NEIGHBOR_SLANT: "法56条1項2号",
+            Constraint.BCR: "法53条",
+        }[self]
+
+
+NO_CONSTRAINT_LABEL = "敷地形状・外壁後退のみ"
+
+
+@dataclass(frozen=True)
+class ConstraintImpact:
+    """ある規定が「その階の床面積をどれだけ削っているか」。
+
+    その規定 **だけ** を外したときに増える床面積（限界寄与）で表す。
+    複数の規定が同時にかかっている場合、各値の合計は実際の減少量とは一致しない
+    （制約どうしが掛け算で効くため）。「この制限が外れたらどれだけ増えるか」を
+    見るための値であり、内訳の分解ではない。
+    """
+
+    constraint: Constraint
+    area_gain_mm2: float          # その規定を外したときの床面積の増分
+    setback_mm: float             # その規定による後退量（建蔽率は絞り込み量）
+
+
 class StopReason(str, Enum):
     """階の積み上げを打ち切った理由。"""
 
@@ -189,7 +223,32 @@ class FloorResult:
     y_max_mm: float
     setback_road_mm: float        # 道路斜線による後退量（外壁後退を含まない）
     setback_neighbor_mm: float    # 隣地斜線による後退量（外壁後退を含まない）
-    governing: str                # この階の形状を決めた規定
+    governing: str                # この階の形状を決めた規定（表示用の文字列）
+
+    # この階を削っている規定と、その規定を外したときの床面積の増分。
+    # 増分の大きい順。空なら斜線も建蔽率もかかっていない。
+    impacts: tuple[ConstraintImpact, ...] = ()
+
+    # 道路斜線が適用距離で頭打ちになっているか（別表第三(は)欄）
+    road_slant_capped: bool = False
+
+    # 外壁後退だけを引いた、制限がかからなかった場合の床面積
+    unconstrained_area_mm2: float = 0.0
+
+    @property
+    def constraints(self) -> tuple[Constraint, ...]:
+        """この階を削っている規定（増分の大きい順）。"""
+        return tuple(i.constraint for i in self.impacts)
+
+    @property
+    def dominant_constraint(self) -> Constraint | None:
+        """最も大きく削っている規定。何もかかっていなければ None。"""
+        return self.impacts[0].constraint if self.impacts else None
+
+    @property
+    def area_loss_mm2(self) -> float:
+        """制限がかからなかった場合との床面積の差。"""
+        return max(0.0, self.unconstrained_area_mm2 - self.gross_area_mm2)
 
     @property
     def top_mm(self) -> float:
@@ -295,6 +354,32 @@ class VolumeResult:
     def achieved_bcr(self) -> float:
         """達成建蔽率（倍率表記）。"""
         return self.building_area_mm2 / self.site_area_mm2 if self.site_area_mm2 else 0.0
+
+    # --- どの規定がボリュームを削っているか -----------------------------------
+
+    @property
+    def total_area_loss_mm2(self) -> float:
+        """制限がかからなかった場合との延床面積の差。"""
+        return sum(f.area_loss_mm2 for f in self.floors)
+
+    def constraint_gains_mm2(self) -> dict[Constraint, float]:
+        """規定ごとの「それを外したときに増える延床面積」（増分の大きい順）。
+
+        現在の階数のまま各階の床面積が増える分だけを積み上げた値。制限が外れれば
+        階数自体が増える可能性もあるが、それは含まない（過小評価になる側）。
+        また各規定は掛け算で効くため、合計は total_area_loss_mm2 とは一致しない。
+        """
+        gains: dict[Constraint, float] = {}
+        for floor in self.floors:
+            for impact in floor.impacts:
+                gains[impact.constraint] = gains.get(impact.constraint, 0.0) + impact.area_gain_mm2
+        return dict(sorted(gains.items(), key=lambda kv: kv[1], reverse=True))
+
+    @property
+    def dominant_constraint(self) -> Constraint | None:
+        """全体として最もボリュームを削っている規定。"""
+        gains = self.constraint_gains_mm2()
+        return next(iter(gains), None)
 
     # --- 表示用 -------------------------------------------------------------
 

@@ -231,8 +231,51 @@ function showError(msg) {
 const pct = (v) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(0)}%`);
 const n2 = (v) => v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+// 断面図の塗り分けと対応する CSS クラス
+const CONSTRAINT_CLASS = {
+  "道路斜線": "c-road",
+  "隣地斜線": "c-neighbor",
+  "建蔽率": "c-bcr",
+};
+
+function renderConstraints(data) {
+  const s = data.summary;
+  const gains = data.constraint_gains || [];
+  const el = $("#constraints");
+
+  if (!gains.length) {
+    el.innerHTML = s.floor_count
+      ? `<p class="hint">斜線・建蔽率のいずれもボリュームを削っていません（敷地形状と外壁後退のみ）。</p>`
+      : `<p class="hint">建築可能な階が成立しないため、削減要因を算定できません。</p>`;
+    return;
+  }
+
+  const max = Math.max(...gains.map((g) => g.area_gain_m2));
+  const rows = gains.map((g) => {
+    const cls = CONSTRAINT_CLASS[g.constraint] || "c-none";
+    const pct = max > 0 ? (g.area_gain_m2 / max) * 100 : 0;
+    return `<div class="bar-row">
+        <span class="name"><span class="swatch ${cls}"></span>${g.constraint}</span>
+        <span class="bar-track"><span class="bar-fill ${cls}" style="width:${pct.toFixed(1)}%"></span></span>
+        <span class="val">+${n2(g.area_gain_m2)} m2</span>
+      </div>
+      <div class="bar-row"><span></span><span class="basis">［${g.basis}］</span><span></span></div>`;
+  }).join("");
+
+  el.innerHTML =
+    `<p class="loss-head">制限がなければ <b>${n2(s.unconstrained_area_m2)} m2</b> のところ、
+       実際は <b>${n2(s.total_gross_area_m2)} m2</b>
+       — <b>${n2(s.total_area_loss_m2)} m2</b> が規制で削られています。
+       最大の要因は <b>${s.dominant_constraint}</b> です。</p>
+     <div class="bars">${rows}</div>
+     <p class="hint">棒は「その規定<b>だけ</b>を外したときに増える延床面積」です。
+       規定どうしは掛け算で効くため、合計は削減量とは一致しません。
+       また階数が増える分は含んでいません（少なめに出ます）。</p>`;
+}
+
 function render(data) {
   $("#svg").innerHTML = data.svg;
+  renderConstraints(data);
 
   const s = data.summary;
   const cards = [
@@ -254,15 +297,22 @@ function render(data) {
     ? `打ち切り理由: ${s.stop_reason} — ${s.stop_detail}` : "";
 
   const head = `<thead><tr><th>階</th><th>階高(m)</th><th>間口(m)</th><th>奥行(m)</th>
-    <th>床面積(m2)</th><th>容積対象(m2)</th><th>累計(m2)</th><th class="l">支配規定</th></tr></thead>`;
-  const rows = data.floors.map((f) => `<tr>
+    <th>床面積(m2)</th><th>削減(m2)</th><th>容積対象(m2)</th><th>累計(m2)</th>
+    <th class="l">支配規定</th></tr></thead>`;
+  const rows = data.floors.map((f) => {
+    const cls = CONSTRAINT_CLASS[f.dominant_constraint] || "c-none";
+    return `<tr>
       <td>${f.floor}F</td><td>${f.story_height_m.toFixed(2)}</td>
       <td>${f.width_m.toFixed(2)}</td><td>${f.depth_m.toFixed(2)}</td>
-      <td>${n2(f.area_m2)}</td><td>${n2(f.far_area_m2)}</td><td>${n2(f.cumulative_far_area_m2)}</td>
-      <td class="l">${f.governing}</td></tr>`).join("");
+      <td>${n2(f.area_m2)}</td>
+      <td>${f.area_loss_m2 > 0 ? "-" + n2(f.area_loss_m2) : "—"}</td>
+      <td>${n2(f.far_area_m2)}</td><td>${n2(f.cumulative_far_area_m2)}</td>
+      <td class="l"><span class="swatch ${cls}"></span>${f.governing}</td></tr>`;
+  }).join("");
   const foot = data.floors.length
     ? `<tfoot><tr><td>合計</td><td>—</td><td>—</td><td>—</td>
-        <td>${n2(s.total_gross_area_m2)}</td><td>${n2(s.total_far_area_m2)}</td>
+        <td>${n2(s.total_gross_area_m2)}</td><td>-${n2(s.total_area_loss_m2)}</td>
+        <td>${n2(s.total_far_area_m2)}</td>
         <td>${n2(s.total_far_area_m2)}</td><td class="l"></td></tr></tfoot>`
     : "";
   $("#areas").innerHTML = data.floors.length

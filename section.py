@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import constants as C
-from models import VolumeResult
+from models import Constraint, VolumeResult
 
 MM = C.M_TO_MM
 
@@ -35,6 +35,9 @@ class FloorSection:
     y_max_mm: float
     z_min_mm: float
     z_max_mm: float
+    # この階を最も大きく削っている規定。何もかかっていなければ None。
+    dominant: Constraint | None = None
+    area_loss_mm2: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,10 @@ class SectionGeometry:
     height_limit_mm: float | None    # 絶対高さ制限。描画範囲内のときだけ入る
     floors: tuple[FloorSection, ...]
     max_height_mm: float
+
+    # 斜線も建蔽率もかからなかった場合に建てられた範囲（外壁後退のみを引いたもの）。
+    # 実際の形との差が「規制で削られた分」として一目で分かる。
+    unconstrained_y_mm: tuple[float, float] | None = None
 
 
 def z_max(result: VolumeResult) -> float:
@@ -126,9 +133,15 @@ def build(result: VolumeResult) -> SectionGeometry:
             y_max_mm=f.y_max_mm,
             z_min_mm=f.level_mm,
             z_max_mm=f.top_mm,
+            dominant=f.dominant_constraint,
+            area_loss_mm2=f.area_loss_mm2,
         )
         for f in result.floors
     )
+
+    # 制限がかからなかった場合の奥行方向の範囲（外壁後退のみ）
+    setback = result.input.program.wall_setback_mm
+    unconstrained_y = (setback, d - setback) if d - 2 * setback > 0 else None
 
     return SectionGeometry(
         road_width_mm=w,
@@ -145,4 +158,5 @@ def build(result: VolumeResult) -> SectionGeometry:
         height_limit_mm=limit,
         floors=floors,
         max_height_mm=result.max_height_mm,
+        unconstrained_y_mm=unconstrained_y,
     )
