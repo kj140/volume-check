@@ -223,6 +223,7 @@ function payload() {
       floor_height: num("floor_height"), gf_height: num("gf_height"),
       wall_setback: num("wall_setback"), core_ratio: num("core_ratio") / 100,
       max_floors: parseInt(form.max_floors.value, 10),
+      building_angle: parseFloat(form.building_angle.value) || 0,
       fireproof: form.fireproof.checked,
     },
   };
@@ -449,3 +450,75 @@ form.road_side.addEventListener("change", () => updateFromRect(false));
   setDrawing(false);
   solve();
 })();
+
+
+// ---------------------------------------------------------------------------
+// 複数案の比較
+// ---------------------------------------------------------------------------
+$("#btn-study").addEventListener("click", async () => {
+  if (!lastPayload) return;
+  const btn = $("#btn-study");
+  btn.disabled = true;
+  $("#studies").innerHTML = `<p class="hint">案を生成中…</p>`;
+  try {
+    const res = await fetch("/api/studies", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        base: lastPayload,
+        try_fireproof: $("#try-fireproof").checked,
+        limit: 12,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    renderStudies(await res.json());
+  } catch (e) {
+    $("#studies").innerHTML = `<p class="hint">案の生成に失敗しました: ${e.message || e}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderStudies(data) {
+  if (!data.cases.length) {
+    $("#studies").innerHTML = `<p class="hint">成立する案がありませんでした。</p>`;
+    return;
+  }
+  const b = data.baseline;
+
+  // 振り角と延床面積の関係
+  const sweep = data.angle_sweep || [];
+  const maxArea = Math.max(...sweep.map((s) => s.total_gross_area_m2), 1);
+  const minArea = Math.min(...sweep.map((s) => s.total_gross_area_m2), maxArea);
+  const bars = sweep.map((s) => {
+    const h = 12 + 72 * ((s.total_gross_area_m2 - minArea) / (maxArea - minArea || 1));
+    const top = s.total_gross_area_m2 === maxArea ? " top" : "";
+    return `<span class="col${top}" title="${s.angle_deg}度: ${n2(s.total_gross_area_m2)} m2">
+        <span class="bar" style="height:${h.toFixed(0)}px"></span>
+        <span class="lbl">${s.angle_deg > 0 ? "+" : ""}${s.angle_deg}</span></span>`;
+  }).join("");
+
+  const row = (c, cls) => `<tr class="${cls}">
+      <td>${c.building_angle_deg > 0 ? "+" : ""}${c.building_angle_deg.toFixed(0)}°</td>
+      <td>${c.floor_height_m.toFixed(1)}</td>
+      <td>${c.wall_setback_m.toFixed(1)}</td>
+      <td>${c.fireproof ? "耐火" : "—"}</td>
+      <td>${c.floor_count}</td>
+      <td>${c.max_height_m.toFixed(2)}</td>
+      <td>${n2(c.total_gross_area_m2)}</td>
+      <td>${n2(c.total_rentable_area_m2)}</td>
+      <td class="l">${c.dominant_constraint || "—"}</td></tr>`;
+
+  $("#studies").innerHTML =
+    (sweep.length ? `<div class="sweep">${bars}</div>
+       <p class="hint">振り角[度]ごとの延床面積。棒が高いほど大きい。</p>` : "") +
+    `<div class="table-wrap"><table>
+       <thead><tr><th>振り角</th><th>階高(m)</th><th>外壁後退(m)</th><th>仕様</th>
+         <th>階数</th><th>最高高さ(m)</th><th>延床(m2)</th><th>貸室(m2)</th>
+         <th class="l">主要因</th></tr></thead>
+       <tbody>${row(b, "base")}${data.cases.map((c, i) => row(c, i === 0 ? "best" : "")).join("")}</tbody>
+     </table></div>` +
+    data.notes.map((t) => `<p class="note">${t}</p>`).join("");
+}

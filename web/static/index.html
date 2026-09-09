@@ -113,6 +113,9 @@
           <label>最大階数
             <input name="max_floors" type="number" step="1" min="1" max="200" value="30" required>
           </label>
+          <label>建物の振り角 <small>(度・道路に平行が0)</small>
+            <input name="building_angle" type="number" step="1" min="-90" max="90" value="0">
+          </label>
         </div>
       </fieldset>
     </form>
@@ -145,6 +148,17 @@
     <div class="block">
       <h2>ボリュームを削っている規定</h2>
       <div id="constraints"></div>
+    </div>
+
+    <div class="block">
+      <div class="block-head">
+        <h2>複数案の比較</h2>
+        <label class="inline"><input id="try-fireproof" type="checkbox"> 耐火建築物等も振る</label>
+        <button id="btn-study" type="button" class="primary">案を自動生成</button>
+      </div>
+      <p class="hint">建物の向き・基準階の階高・外壁後退を振って総当たりします。
+        法規条件は敷地で決まるので振りません。</p>
+      <div id="studies"></div>
     </div>
 
     <div class="block">

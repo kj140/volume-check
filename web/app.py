@@ -36,6 +36,7 @@ from starlette.background import BackgroundTask            # noqa: E402
 import constants as C                                      # noqa: E402
 from drawer import draw                                    # noqa: E402
 from models import VolumeInput, VolumeResult               # noqa: E402
+import studies                                             # noqa: E402
 from solver import solve                                   # noqa: E402
 
 from . import zoning                                       # noqa: E402
@@ -62,13 +63,19 @@ app = FastAPI(
 class SiteIn(BaseModel):
     """単位は m。既存の入力JSONと同じ形。"""
 
-    frontage: float = Field(gt=0, description="道路に接する辺の長さ[m]")
-    depth: float = Field(gt=0, description="道路と直交する辺の長さ[m]")
-    road_width: float = Field(gt=0, description="前面道路の幅員[m]")
+    frontage: float = Field(default=20.0, gt=0, description="道路に接する辺の長さ[m]")
+    depth: float = Field(default=30.0, gt=0, description="道路と直交する辺の長さ[m]")
+    road_width: float = Field(default=6.0, gt=0, description="前面道路の幅員[m]")
     road_side: Literal["north", "east", "south", "west"]
     corner_lot: bool = Field(
         default=False, description="角地等の指定を受けているか（法53条3項2号）"
     )
+    boundary: list[tuple[float, float]] | None = Field(
+        default=None, description="非矩形敷地の頂点列[m]。指定すると矩形の指定より優先")
+    edges: list[dict] | None = Field(
+        default=None, description="辺ごとの {kind: road|neighbor, width: 幅員[m]}")
+    north_angle: float | None = Field(
+        default=None, description="ローカル座標における北の向き[度]")
 
 
 class ZoningIn(BaseModel):
@@ -87,6 +94,9 @@ class ProgramIn(BaseModel):
     wall_setback: float = Field(ge=0)
     core_ratio: float = Field(ge=0, lt=1.0)
     max_floors: int = Field(ge=1, le=200)
+    building_angle: float | None = Field(
+        default=None, ge=-90, le=90,
+        description="前面道路に対する建物の振り角[度]。未指定なら道路に平行")
     fireproof: bool = Field(
         default=False, description="耐火建築物等とするか（法53条3項1号・6項1号）"
     )
@@ -96,6 +106,21 @@ class VolumeIn(BaseModel):
     site: SiteIn
     zoning: ZoningIn
     program: ProgramIn
+
+
+class StudyIn(BaseModel):
+    """複数案の自動生成。振るのは計画側の選択だけ。"""
+
+    base: VolumeIn
+    angles_deg: list[float] | None = Field(
+        default=None, description="前面道路に対する振り角[度]の候補")
+    floor_heights_m: list[float] | None = Field(
+        default=None, description="基準階の階高[m]の候補")
+    wall_setbacks_m: list[float] | None = Field(
+        default=None, description="外壁後退[m]の候補")
+    try_fireproof: bool = Field(
+        default=False, description="耐火建築物等とするかも振るか")
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class RectIn(BaseModel):
@@ -161,6 +186,8 @@ def _summary(r: VolumeResult) -> dict:
         ),
         "stop_reason": r.stop_reason.value if r.stop_reason else None,
         "stop_detail": r.stop_detail,
+        "building_angle_deg": round(r.building_angle_deg, 2),
+        "site_is_rectangle": r.input.site.is_rectangle,
         # 規制がかからなかった場合との差
         "unconstrained_area_m2": round(
             sum(f.unconstrained_area_mm2 for f in r.floors) / M2, 2
@@ -326,6 +353,41 @@ def api_solve(payload: VolumeIn) -> dict:
         "svg_site_plan": render_site_plan(r),
         "svg_floor_plans": render_floor_plans(r),
     }
+
+
+@app.post("/api/studies")
+def api_studies(payload: StudyIn) -> dict:
+    """条件を振って複数案を作り、延床面積の大きい順に返す。
+
+    法規条件は敷地で決まるので振らない。動かすのは建物の向き・階高・
+    外壁後退・耐火建築物等とするか、という計画側の選択だけ。
+    """
+    base = payload.base.model_dump()
+    try:
+        study = studies.generate(
+            base,
+            angles_deg=tuple(payload.angles_deg) if payload.angles_deg
+            else studies.DEFAULT_ANGLES_DEG,
+            floor_heights_m=tuple(payload.floor_heights_m) if payload.floor_heights_m
+            else studies.DEFAULT_FLOOR_HEIGHTS_M,
+            wall_setbacks_m=tuple(payload.wall_setbacks_m) if payload.wall_setbacks_m
+            else studies.DEFAULT_WALL_SETBACKS_M,
+            fireproof_options=(False, True) if payload.try_fireproof else (),
+            limit=payload.limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    result = study.to_dict()
+    result["angle_sweep"] = [
+        {"angle_deg": a, "total_gross_area_m2": round(area, 2)}
+        for a, area in studies.sweep_angles(
+            base,
+            tuple(payload.angles_deg) if payload.angles_deg
+            else studies.DEFAULT_ANGLES_DEG,
+        )
+    ]
+    return result
 
 
 @app.post("/api/dxf")
