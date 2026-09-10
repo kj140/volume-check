@@ -522,3 +522,73 @@ function renderStudies(data) {
      </table></div>` +
     data.notes.map((t) => `<p class="note">${t}</p>`).join("");
 }
+
+
+// ---------------------------------------------------------------------------
+// 天空率の検討
+// ---------------------------------------------------------------------------
+$("#btn-sky").addEventListener("click", async () => {
+  if (!lastPayload) return;
+  const btn = $("#btn-sky");
+  btn.disabled = true;
+  $("#sky").innerHTML = `<p class="hint">天空率を算定中…</p>`;
+  try {
+    const res = await fetch("/api/skyfactor", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lastPayload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    renderSky(await res.json());
+  } catch (e) {
+    $("#sky").innerHTML = `<p class="hint">判定に失敗しました: ${e.message || e}</p>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderSky(data) {
+  const cls = data.passes ? "ok" : (data.worth_studying ? "ng" : "none");
+  const head = `<p class="verdict ${cls}">${data.verdict}</p>`;
+
+  if (!data.worth_studying || !data.roads.length) {
+    $("#sky").innerHTML = head + data.notes.map((t) => `<p class="note">${t}</p>`).join("");
+    return;
+  }
+
+  const compare = `<div class="table-wrap"><table>
+      <thead><tr><th></th><th>階数</th><th>最高高さ(m)</th><th>延床(m2)</th>
+        <th>外壁後退(m)</th></tr></thead>
+      <tbody>
+        <tr><td class="l">斜線を守った案</td><td>—</td>
+          <td>${data.base.max_height_m.toFixed(2)}</td>
+          <td>${n2(data.base.total_gross_area_m2)}</td><td>—</td></tr>
+        <tr class="${data.passes ? "best" : ""}"><td class="l">計画建築物（斜線なし）</td>
+          <td>${data.planned.floor_count}</td>
+          <td>${data.planned.max_height_m.toFixed(2)}</td>
+          <td>${n2(data.planned.total_gross_area_m2)}</td>
+          <td>${data.planned.wall_setback_m.toFixed(1)}</td></tr>
+        ${data.suggestion ? `<tr class="best"><td class="l">通る案</td>
+          <td>${data.suggestion.floor_count}</td>
+          <td>${data.suggestion.max_height_m.toFixed(2)}</td>
+          <td>${n2(data.suggestion.total_gross_area_m2)}</td>
+          <td>${data.suggestion.wall_setback_m.toFixed(1)}</td></tr>` : ""}
+      </tbody></table></div>`;
+
+  const rows = data.roads.flatMap((r) =>
+    r.points.map((p, i) => `<tr class="${p.passes ? "" : "ng"}">
+        <td>${i + 1}</td><td>${r.road_width_m.toFixed(1)}</td>
+        <td>${p.planned_pct.toFixed(2)}</td><td>${p.compliant_pct.toFixed(2)}</td>
+        <td>${p.margin_pct > 0 ? "+" : ""}${p.margin_pct.toFixed(2)}</td>
+        <td>${p.passes ? "○" : "×"}</td></tr>`)).join("");
+
+  $("#sky").innerHTML = head + compare +
+    (data.svg_sky_plan ? `<div class="figure">${data.svg_sky_plan}</div>` : "") +
+    `<div class="table-wrap"><table>
+       <thead><tr><th>算定位置</th><th>幅員(m)</th><th>計画(%)</th><th>適合(%)</th>
+         <th>差(pt)</th><th>判定</th></tr></thead>
+       <tbody>${rows}</tbody></table></div>` +
+    data.notes.map((t) => `<p class="note">${t}</p>`).join("");
+}

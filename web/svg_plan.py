@@ -265,3 +265,74 @@ def render_floor_plans(result: VolumeResult) -> str:
         f' width="100%" style="max-width:{width:.0f}px"'
         f' font-family="system-ui, sans-serif">{"".join(parts)}</svg>'
     )
+
+
+# ---------------------------------------------------------------------------
+# 天空率の検討図
+# ---------------------------------------------------------------------------
+
+SKY_COLORS = {
+    "pass": "#16a34a",
+    "fail": "#dc2626",
+    "planned": "#2563eb",
+}
+
+
+def render_sky_plan(result: VolumeResult, study) -> str:
+    """天空率の検討図。計画建築物の外形と、道路の反対側に並ぶ算定位置を描く。
+
+    算定位置の点は、その位置で計画建築物の天空率が適合建築物以上なら緑、
+    足りなければ赤。最も不利な位置には不足分を添える。
+    """
+    geom = P.build(result)
+    c = _make_canvas(geom, SITE_VIEW_W, SITE_PAD)
+
+    for road in geom.roads:
+        c.polygon_local(road.outline, COLORS["road"], COLORS["road_line"], 1.0, cls="road")
+    c.polygon_local(geom.site_outline, "none", COLORS["site"], 2.0, cls="site")
+
+    # 斜線を守った現状の案（1階外形）を薄い破線で残しておく
+    if geom.floors:
+        c.polygon_local(geom.floors[0].outline, "none", COLORS["ghost"], 1.2,
+                        dash="4 4", cls="base")
+
+    # 計画建築物（斜線を外し、全階同一平面とした案）
+    if study.planned_outline:
+        c.parts.append(
+            '<g fill-opacity="0.18">'
+        )
+        c.polygon_local(study.planned_outline, SKY_COLORS["planned"],
+                        SKY_COLORS["planned"], 1.6, cls="planned")
+        c.parts.append("</g>")
+
+    # 算定位置（令135条の9第1項）
+    for road_check in study.roads:
+        worst = road_check.worst
+        for point in road_check.points:
+            px, py = c.pt(*point.position)
+            color = SKY_COLORS["pass"] if point.passes else SKY_COLORS["fail"]
+            c.parts.append(
+                f'<circle class="sky-point" cx="{px:.2f}" cy="{py:.2f}" r="4"'
+                f' fill="{color}" fill-opacity="0.85" stroke="#ffffff"'
+                f' stroke-width="1"/>'
+            )
+            if worst is not None and point is worst:
+                c.text_px(px, py + 16, f"{point.margin * 100:+.2f}pt",
+                          anchor="middle", size=10, fill=color)
+
+    # 通るようになる案（外壁後退を広げたもの）
+    legend = "青＝計画建築物・灰破線＝斜線を守った案"
+    if study.suggestion is not None and study.suggestion.outline:
+        c.polygon_local(study.suggestion.outline, "none", SKY_COLORS["pass"], 1.6,
+                        dash="7 4", cls="suggestion")
+        legend += (f"・緑破線＝外壁後退 "
+                   f"{study.suggestion.wall_setback_mm / MM:.1f}m で通る案")
+
+    passed = sum(1 for r in study.roads for p in r.points if p.passes)
+    total = sum(len(r.points) for r in study.roads)
+    c.text_px(SITE_PAD, c.height - 20,
+              f"算定位置 {passed}/{total} か所で適合建築物以上",
+              size=10, fill=COLORS["muted"])
+    c.text_px(SITE_PAD, c.height - 8, legend, size=9, fill=COLORS["muted"])
+    _north_arrow(c, c.width - 24, 24)
+    return c.svg()

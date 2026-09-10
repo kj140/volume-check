@@ -186,3 +186,14 @@ label.inline { flex-direction: row; align-items: center; gap: 5px; font-size: 12
                    border-radius: 2px 2px 0 0; }
 .sweep .col.top .bar { background: var(--accent); }
 .sweep .col .lbl { font-size: 9px; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+
+/* --- 天空率の検討 ---------------------------------------------------------- */
+#sky .verdict { margin: 6px 0 10px; padding: 9px 11px; border-radius: 5px;
+                font-size: 13px; line-height: 1.6; border-left: 4px solid; }
+#sky .verdict.ok   { background: #f0fdf4; border-color: #16a34a; }
+#sky .verdict.ng   { background: #fef2f2; border-color: #dc2626; }
+#sky .verdict.none { background: #f8fafc; border-color: #94a3b8; }
+#sky tr.ng td { background: #fef2f2; }
+#sky tr.best td { background: #f0fdf4; font-weight: 600; }
+#sky .figure { margin: 10px 0; }
+#sky .note { margin: 6px 0 0; font-size: 12px; }

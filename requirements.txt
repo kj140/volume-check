@@ -1,6 +1,8 @@
 # Web アプリの実行時依存だけを書く。
 # 開発用（pytest / matplotlib）は含めない。
 ezdxf==1.4.4
+shapely==2.1.2
+numpy==2.5.2
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 httpx==0.28.1

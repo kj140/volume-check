@@ -36,12 +36,17 @@ from starlette.background import BackgroundTask            # noqa: E402
 import constants as C                                      # noqa: E402
 from drawer import draw                                    # noqa: E402
 from models import VolumeInput, VolumeResult               # noqa: E402
+import skyfactor                                           # noqa: E402
 import studies                                             # noqa: E402
 from solver import solve                                   # noqa: E402
 
 from . import zoning                                       # noqa: E402
 from .geo import frontage_depth_m                          # noqa: E402
-from .svg_plan import render_floor_plans, render_site_plan  # noqa: E402
+from .svg_plan import (                                     # noqa: E402
+    render_floor_plans,
+    render_site_plan,
+    render_sky_plan,
+)
 from .svg_section import render as render_svg              # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -387,6 +392,20 @@ def api_studies(payload: StudyIn) -> dict:
             else studies.DEFAULT_ANGLES_DEG,
         )
     ]
+    return result
+
+
+@app.post("/api/skyfactor")
+def api_skyfactor(payload: VolumeIn) -> dict:
+    """天空率で道路斜線を緩和できる見込みがあるかを判定する（法56条7項1号）。
+
+    確認申請の判定ではなく、企画段階で「天空率を検討する価値があるか」を
+    見るための試算。隣地斜線・北側斜線の天空率は未対応。
+    """
+    r = _solve(payload)
+    study = skyfactor.evaluate(r)
+    result = study.to_dict()
+    result["svg_sky_plan"] = render_sky_plan(r, study) if study.roads else ""
     return result
 
 
