@@ -31,6 +31,8 @@ import math
 from dataclasses import dataclass
 from enum import Enum
 
+import numpy as np
+import shapely
 from shapely import affinity
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import unary_union
@@ -296,18 +298,19 @@ def largest_inscribed_rectangle(region: Polygon | MultiPolygon, angle_rad: float
         cols = max(1, int((maxx - minx) / grid_mm))
         rows = max(1, int((maxy - miny) / grid_mm))
 
-    prepared = rotated
-    inside = [
-        [prepared.contains(Point(minx + (c + 0.5) * grid_mm, miny + (r + 0.5) * grid_mm))
-         for c in range(cols)]
-        for r in range(rows)
-    ]
+    # 格子の中心が領域内かをまとめて判定する。1点ずつ shapely を呼ぶと
+    # 1回の算定で数千〜数万回になり、複数案の生成が目に見えて遅くなる。
+    xs = minx + (np.arange(cols) + 0.5) * grid_mm
+    ys = miny + (np.arange(rows) + 0.5) * grid_mm
+    gx, gy = np.meshgrid(xs, ys)
+    inside = shapely.contains_xy(rotated, gx.ravel(), gy.ravel()).reshape(rows, cols)
 
     best = (0.0, 0, 0, 0, 0)          # (面積, r0, c0, r1, c1)
     heights = [0] * cols
     for r in range(rows):
+        row = inside[r]
         for c in range(cols):
-            heights[c] = heights[c] + 1 if inside[r][c] else 0
+            heights[c] = heights[c] + 1 if row[c] else 0
         for c0, c1, h in _max_rectangles(heights):
             area = (c1 - c0) * h
             if area > best[0]:

@@ -13,8 +13,8 @@
 法規条件（用途地域・建蔽率・容積率・防火地域など）は敷地の条件なので振らない。
 建蔽率の緩和に関わる「耐火建築物等とするか」だけは計画の選択なので任意で振れる。
 
-天空率（法56条7項1号）による道路斜線の緩和は任意で各案に付けられる。案ごとに
-算定が要るので、表に出す上位の案だけを判定する。
+天空率（法56条7項1号・2号）による道路斜線・隣地斜線の緩和は任意で各案に
+付けられる。案ごとに算定が要るので、表に出す上位の案だけを判定する。
 """
 
 from __future__ import annotations
@@ -50,10 +50,10 @@ MAX_SKY_CHECKS = 20
 
 @dataclass(frozen=True)
 class SkyVerdict:
-    """その案について、天空率で道路斜線を外せるか（法56条7項1号）。
+    """その案について、天空率で斜線制限を外せるか（法56条7項1号・2号）。
 
     checked が False なら判定していない（判定数の上限に掛かった案）。
-    worth が False なら道路斜線を外しても延床が増えないので検討する意味がない。
+    worth が False なら斜線制限を外しても延床が増えないので検討する意味がない。
     """
 
     checked: bool = False
@@ -264,7 +264,10 @@ def _case_key(case: StudyCase) -> tuple:
 
 
 def _sky_verdict(result: VolumeResult) -> SkyVerdict:
-    """1 案の天空率の判定。通る案の探索まではしない（表に出すのは可否だけ）。"""
+    """1 案の天空率の判定。道路斜線と隣地斜線の両方を見る。
+
+    通る案の探索まではしない（表に出すのは可否だけ）。
+    """
     study = skyfactor.evaluate(result, suggest=False)
     margin = study.worst_margin
     return SkyVerdict(
@@ -353,7 +356,7 @@ def _add_sky_notes(study: StudyResult) -> None:
         study.notes.append(
             f"天空率まで見ると、振り角 {top.building_angle_deg:+.0f}度・"
             f"階高 {top.floor_height_m}m・外壁後退 {top.wall_setback_m}m の案が"
-            f"道路斜線を外せる見込みで、延床は "
+            f"斜線制限を外せる見込みで、延床は "
             f"{top.total_gross_area_m2 + top.sky.gain_m2:,.1f}m2"
             f"（+{top.sky.gain_m2:,.1f}m2）まで伸ばせます。"
         )
@@ -361,7 +364,7 @@ def _add_sky_notes(study: StudyResult) -> None:
         best = max((c for c in judged if c.sky.worth),
                    key=lambda c: c.sky.margin_pct or -1e9)
         note = (
-            f"天空率で道路斜線を外せる案は上位にありませんでした。"
+            f"天空率で斜線制限を外せる案は上位にありませんでした。"
             f"最も惜しいのは振り角 {best.building_angle_deg:+.0f}度・"
             f"外壁後退 {best.wall_setback_m}m の案で "
             f"{best.sky.margin_pct:+.2f} ポイントです。"
@@ -380,7 +383,7 @@ def _add_sky_notes(study: StudyResult) -> None:
         )
     else:
         study.notes.append(
-            "上位の案はいずれも道路斜線を外しても延床が増えないため、"
+            "上位の案はいずれも斜線制限を外しても延床が増えないため、"
             "天空率を検討する意味はありません。"
         )
 

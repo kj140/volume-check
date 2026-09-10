@@ -292,6 +292,13 @@ SKY_FACTOR_ROAD_POINT_INTERVAL_RATIO: float = 0.5
 # 「前面道路の路面の中心の高さ」。本ツールは GL＝道路中心高さとして扱う。
 SKY_FACTOR_ROAD_POINT_HEIGHT_M: float = 0.0
 
+# 隣地斜線の算定位置の間隔（令135条の10）。境界線から算定線までの距離の 1/2 以下。
+# 勾配1.25（水平距離16m）なら8m以下、勾配2.5（12.4m）なら6.2m以下になる。
+SKY_FACTOR_NEIGHBOR_POINT_INTERVAL_RATIO: float = 0.5
+
+# 隣地斜線の算定位置の高さ[m]（令135条の10）。「平均地盤面」＝本ツールの GL。
+SKY_FACTOR_NEIGHBOR_POINT_HEIGHT_M: float = 0.0
+
 
 # ---------------------------------------------------------------------------
 # 以下は法規定数ではない。本ツールの運用上のしきい値・単位換算。
@@ -335,3 +342,23 @@ def far_road_width_coefficient(district: UseDistrict) -> float:
 def neighbor_slant(district: UseDistrict) -> tuple[float, float] | None:
     """隣地斜線の (立ち上がり高さ[m], 勾配)。適用がない地域は None（法56条1項2号）。"""
     return NEIGHBOR_SLANT[district]
+
+
+def neighbor_slant_measurement_distance_m(district: UseDistrict) -> float | None:
+    """隣地斜線の算定位置までの水平距離[m]（令135条の10）。適用がなければ None。
+
+    隣地境界線から「立ち上がり ÷ 勾配」だけ外側。住居系（20m・1.25）なら 16m、
+    それ以外（31m・2.5）なら 12.4m となり、令が定める値と一致する。
+
+    この距離である理由は幾何的にはっきりしている。境界線から敷地内へ距離 d の点で
+    斜線の高さは 立ち上がり + 勾配×d なので、境界線の 立ち上がり/勾配 だけ外側から
+    見た仰角の正接は
+        (立ち上がり + 勾配×d) / (立ち上がり/勾配 + d) = 勾配
+    となり、斜線面上のどの点でも一定になる。道路斜線で反対側の境界線を算定線に
+    採るのと同じ性質（令135条の9）。
+    """
+    slant = NEIGHBOR_SLANT[district]
+    if slant is None:
+        return None
+    start_m, gradient = slant
+    return start_m / gradient

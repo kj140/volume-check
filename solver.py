@@ -215,13 +215,16 @@ def solve(inp: VolumeInput) -> VolumeResult:
 
 
 # ---------------------------------------------------------------------------
-# 内部関数
+# 斜線による後退量。skyfactor.py も使う（斜線の式はここが唯一の定義）
 # ---------------------------------------------------------------------------
 
 
-def _road_setback(top_mm: float, road_width_mm: float, gradient: float,
-                  applicable_distance_mm: float) -> tuple[float, bool]:
-    """道路斜線による後退量と、適用距離で頭打ちになったか（法56条1項1号）。"""
+def road_setback(top_mm: float, road_width_mm: float, gradient: float,
+                 applicable_distance_mm: float) -> tuple[float, bool]:
+    """道路斜線による後退量と、適用距離で頭打ちになったか（法56条1項1号）。
+
+    天空率の適合建築物（skyfactor.py）も同じ式で包絡線を作るので公開している。
+    """
     required = top_mm / gradient
     capped = required > applicable_distance_mm
     if capped:
@@ -230,8 +233,8 @@ def _road_setback(top_mm: float, road_width_mm: float, gradient: float,
     return max(0.0, required - road_width_mm), capped
 
 
-def _neighbor_setback(top_mm: float, start_mm: float | None,
-                      gradient: float | None) -> float:
+def neighbor_setback(top_mm: float, start_mm: float | None,
+                     gradient: float | None) -> float:
     """隣地斜線による後退量（法56条1項2号）。適用のない用途地域は 0。"""
     if start_mm is None or gradient is None:
         return 0.0
@@ -249,18 +252,18 @@ def _setbacks(site, top_mm: float, road_gradient: float,
     out: list[float] = []
     for edge in site.shape.edges:
         if edge.kind is G.EdgeKind.ROAD:
-            setback, _ = _road_setback(top_mm, edge.road_width_mm, road_gradient,
+            setback, _ = road_setback(top_mm, edge.road_width_mm, road_gradient,
                                        applicable_distance_mm)
             out.append(setback)
         else:
-            out.append(_neighbor_setback(top_mm, neighbor_start_mm, neighbor_gradient))
+            out.append(neighbor_setback(top_mm, neighbor_start_mm, neighbor_gradient))
     return out
 
 
 def _road_capped(site, top_mm: float, gradient: float,
                  applicable_distance_mm: float) -> bool:
     """最大幅員の前面道路で、道路斜線が適用距離で頭打ちになっているか。"""
-    return _road_setback(top_mm, site.road_width_mm, gradient,
+    return road_setback(top_mm, site.road_width_mm, gradient,
                          applicable_distance_mm)[1]
 
 

@@ -274,14 +274,18 @@ def test_a_wider_wall_setback_shrinks_the_plate():
 
 
 def test_evaluate_reports_every_measurement_position():
+    """斜線がかかる境界線すべてについて、算定位置がもれなく出る。"""
     r = result()
     study = S.evaluate(r, divisions=720, layer_mm=1000.0)
-    assert len(study.roads) == 1
-    assert len(study.roads[0].points) == len(S.measurement_positions(r, 0))
-    for point in study.roads[0].points:
-        assert 0.0 < point.compliant < 1.0
-        assert 0.0 < point.planned < 1.0
-        assert point.margin == pytest.approx(point.planned - point.compliant)
+    # 商業地域なので道路1辺・隣地3辺すべてに斜線がかかる
+    assert [e.edge_index for e in study.edges] == [0, 1, 2, 3]
+    assert sum(e.is_road for e in study.edges) == 1
+    for check in study.edges:
+        assert len(check.points) == len(S.measurement_positions(r, check.edge_index))
+        for point in check.points:
+            assert 0.0 < point.compliant < 1.0
+            assert 0.0 < point.planned < 1.0
+            assert point.margin == pytest.approx(point.planned - point.compliant)
 
 
 def test_a_slim_building_far_from_the_boundaries_passes():
@@ -324,7 +328,7 @@ def test_nothing_to_study_when_the_slant_is_not_costing_floor_area():
     body["zoning"]["height_limit_absolute"] = 10.0
     study = S.evaluate(solve(VolumeInput.from_dict(body)), divisions=720)
     assert not study.worth_studying
-    assert not study.roads
+    assert not study.edges
     assert "必要はありません" in study.verdict
 
 
@@ -341,7 +345,8 @@ def test_two_roads_are_judged_separately():
     }
     study = S.evaluate(solve(VolumeInput.from_dict(body)), divisions=720,
                        layer_mm=1000.0)
-    assert {r.road_width_mm for r in study.roads} == {12000.0, 4000.0}
+    roads = [e for e in study.edges if e.is_road]
+    assert {e.offset_mm for e in roads} == {12000.0, 4000.0}
 
 
 def test_notes_state_what_is_not_covered():
@@ -363,14 +368,14 @@ def test_skyfactor_endpoint():
     data = res.json()
     assert data["verdict"]
     assert data["worth_studying"] is True
-    assert data["roads"] and data["roads"][0]["points"]
+    assert data["edges"] and data["edges"][0]["points"]
     assert data["svg_sky_plan"].startswith("<svg")
     assert data["notes"]
 
 
 def test_skyfactor_endpoint_on_a_polygon_site():
     data = client.post("/api/skyfactor", json=payload("case_polygon")).json()
-    assert data["roads"]
+    assert data["edges"]
     assert data["planned"]["floor_count"] >= 1
 
 
@@ -382,7 +387,7 @@ def test_skyfactor_endpoint_rejects_invalid_input():
 
 def test_skyfactor_svg_marks_every_measurement_position():
     data = client.post("/api/skyfactor", json=payload()).json()
-    points = sum(len(r["points"]) for r in data["roads"])
+    points = sum(len(e["points"]) for e in data["edges"])
     assert data["svg_sky_plan"].count('class="sky-point"') == points
 
 
@@ -409,3 +414,260 @@ def test_the_verdict_does_not_depend_on_the_layer_thickness():
                    for layer in (250.0, 1000.0, 3000.0)]
         assert margins[0] == pytest.approx(margins[1], abs=1e-6), name
         assert margins[0] == pytest.approx(margins[2], abs=1e-6), name
+
+
+# ---------------------------------------------------------------------------
+# 隣地斜線（令135条の7・令135条の10）
+# ---------------------------------------------------------------------------
+
+
+def neighbor_edges(study):
+    return [e for e in study.edges if not e.is_road]
+
+
+def test_the_measurement_distance_is_the_rise_over_the_gradient():
+    """算定線までの距離は立ち上がり÷勾配。住居系16m・それ以外12.4m（令135条の10）。"""
+    assert C.neighbor_slant_measurement_distance_m(C.UseDistrict.RESIDENTIAL_1) == 16.0
+    assert C.neighbor_slant_measurement_distance_m(C.UseDistrict.COMMERCIAL) == 12.4
+    assert C.neighbor_slant_measurement_distance_m(C.UseDistrict.LOW_RISE_1) is None
+    for district, slant in C.NEIGHBOR_SLANT.items():
+        distance = C.neighbor_slant_measurement_distance_m(district)
+        if slant is None:
+            assert distance is None
+        else:
+            start_m, gradient = slant
+            assert distance == pytest.approx(start_m / gradient)
+
+
+def test_the_slant_face_is_seen_at_a_constant_elevation_from_the_measurement_line():
+    """隣地斜線面は、算定線上のどの点から見ても仰角が一定（tan = 勾配）になる。
+
+    算定線の位置がこの距離である理由そのもの。道路の反対側境界線と同じ性質。
+    """
+    r = result()
+    start_mm, gradient = r.neighbor_slant_start_mm, r.neighbor_slant_gradient
+    offset = start_mm / gradient
+    for depth_mm in (0.0, 2000.0, 9000.0, 25000.0):
+        height = start_mm + gradient * depth_mm
+        assert height / (offset + depth_mm) == pytest.approx(gradient)
+
+
+def test_neighbour_measurement_positions_follow_the_ordinance():
+    r = result()                                    # 商業地域 → 12.4m / 6.2m以下
+    for i, edge in enumerate(r.input.site.shape.edges):
+        if edge.kind is G.EdgeKind.ROAD:
+            continue
+        assert S.measurement_offset_mm(r, i) == pytest.approx(12400.0)
+        positions = S.measurement_positions(r, i)
+        line = edge.line()
+        for position in positions:
+            assert line.distance(G.Point(*position)) == pytest.approx(12400.0, abs=1e-6)
+        for a, b in zip(positions, positions[1:]):
+            assert math.dist(a, b) <= 6200.0 + 1e-6
+        assert math.dist(positions[0], positions[-1]) == pytest.approx(
+            edge.length_mm, abs=1e-6)
+
+
+def test_a_residential_district_uses_the_16m_line():
+    body = payload()
+    body["zoning"].update(use_district="第一種住居地域", far_designated=3.0, bcr=0.6)
+    r = solve(VolumeInput.from_dict(body))
+    for i, edge in enumerate(r.input.site.shape.edges):
+        if edge.kind is G.EdgeKind.NEIGHBOR:
+            assert S.measurement_offset_mm(r, i) == pytest.approx(16000.0)
+            positions = S.measurement_positions(r, i)
+            for a, b in zip(positions, positions[1:]):
+                assert math.dist(a, b) <= 8000.0 + 1e-6
+
+
+def test_the_neighbour_envelope_follows_the_neighbour_slant():
+    """各層が、その隣地境界から (h - 立ち上がり) / 勾配 だけ下がる。"""
+    r = result()
+    edge_index = next(i for i, e in enumerate(r.input.site.shape.edges)
+                      if e.kind is G.EdgeKind.NEIGHBOR)
+    edge = r.input.site.shape.edges[edge_index]
+    for slab in S.compliant_slabs(r, edge_index, 45000.0):
+        expected = max(0.0, (slab.top_mm - r.neighbor_slant_start_mm)
+                       / r.neighbor_slant_gradient)
+        assert edge.line().distance(slab.polygon) == pytest.approx(expected, abs=1e-3)
+
+
+def test_the_neighbour_envelope_ignores_the_road_slant():
+    """適合建築物は当該境界の斜線だけに従う（敷地区分方式）。道路側は敷地いっぱい。"""
+    r = result()
+    edge_index = next(i for i, e in enumerate(r.input.site.shape.edges)
+                      if e.kind is G.EdgeKind.NEIGHBOR)
+    top = S.compliant_slabs(r, edge_index, 45000.0)[-1]
+    road = next(e for e in r.input.site.shape.edges if e.kind is G.EdgeKind.ROAD)
+    assert road.line().distance(top.polygon) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_low_rise_districts_have_no_neighbour_slant_to_check():
+    """低層住専は隣地斜線の適用がない（法56条1項2号）ので道路だけを判定する。"""
+    body = payload()
+    body["zoning"].update(use_district="第一種低層住居専用地域", far_designated=1.0,
+                          bcr=0.5, height_limit_absolute=12.0)
+    r = solve(VolumeInput.from_dict(body))
+    assert r.neighbor_slant_start_mm is None
+    for i, edge in enumerate(r.input.site.shape.edges):
+        assert S.slant_applies(r, i) is (edge.kind is G.EdgeKind.ROAD)
+    study = S.evaluate(r, divisions=360, layer_mm=2000.0, suggest=False)
+    assert all(e.is_road for e in study.edges)
+
+
+def test_the_neighbour_side_is_judged_and_usually_clears():
+    """隣地の適合建築物は境界に立つ大きな塊なので、離れた計画建築物は通りやすい。"""
+    study = S.evaluate(result(), divisions=720, suggest=False)
+    checks = neighbor_edges(study)
+    assert len(checks) == 3
+    assert all(e.passes for e in checks)
+
+
+def test_a_failing_road_side_is_named_in_the_verdict():
+    study = S.evaluate(result(), divisions=720, suggest=False)
+    assert not study.passes
+    assert "道路斜線" in study.verdict
+    assert [e.slant_name for e in study.failing()] == ["道路斜線"]
+
+
+def test_capping_the_neighbour_envelope_is_the_strict_side():
+    """適合建築物の高さを頭打ちにしないほうが、余裕は必ず広がる。
+
+    条文からどちらとも読めた部分。厳しい側（頭打ちあり）を既定にしているので、
+    本ツールが出す余裕は下限であり、「通る」ならどちらの読み方でも通る。
+    """
+    for name in ("case_road6", "case_road12", "case_polygon"):
+        r = result(name)
+        strict = S.evaluate(r, divisions=720, suggest=False, neighbor_capped=True)
+        loose = S.evaluate(r, divisions=720, suggest=False, neighbor_capped=False)
+        for a, b in zip(neighbor_edges(strict), neighbor_edges(loose)):
+            for pa, pb in zip(a.points, b.points):
+                assert pb.margin >= pa.margin - 1e-9, name
+
+
+def test_the_uncapped_envelope_reaches_the_far_side_of_the_site():
+    r = result()
+    edge_index = next(i for i, e in enumerate(r.input.site.shape.edges)
+                      if e.kind is G.EdgeKind.NEIGHBOR)
+    planned = 20000.0
+    assert S.envelope_top_mm(r, edge_index, planned, capped=True) == planned
+    loose = S.envelope_top_mm(r, edge_index, planned, capped=False)
+    edge = r.input.site.shape.edges[edge_index]
+    reach = max(edge.line().distance(G.Point(x, y))
+                for x, y in G.outline(r.input.site.shape.polygon))
+    assert loose == pytest.approx(
+        r.neighbor_slant_start_mm + r.neighbor_slant_gradient * reach)
+
+
+def test_the_road_envelope_is_always_capped():
+    """道路は適用距離を超える範囲を計画建築物の最高高さとする（令135条の6第1項）。"""
+    r = result()
+    for capped in (True, False):
+        assert S.envelope_top_mm(r, 0, 30000.0, capped=capped) == 30000.0
+
+
+def test_no_suggestion_sentence_when_the_search_was_not_run():
+    """探索していないのに「見つかりませんでした」と書かない。"""
+    study = S.evaluate(result(), divisions=360, layer_mm=2000.0, suggest=False)
+    assert not study.suggestion_searched
+    assert "見つかりませんでした" not in study.verdict
+    searched = S.evaluate(result(), divisions=360, layer_mm=2000.0)
+    assert searched.suggestion_searched
+
+
+def test_the_suggested_setback_passes_both_slants():
+    study = S.evaluate(result(), divisions=720)
+    assert study.suggestion is not None
+    again = S.evaluate(result(), divisions=720, suggest=False,
+                       wall_setback_mm=study.suggestion.wall_setback_mm)
+    assert again.passes
+    assert all(e.passes for e in again.edges)
+
+
+def test_notes_cover_the_neighbour_provisions():
+    joined = " ".join(S.evaluate(result(), divisions=360, layer_mm=2000.0,
+                                 suggest=False).notes)
+    assert "令135条の7" in joined
+    assert "令135条の10" in joined
+    assert "北側斜線" in joined
+
+
+def test_the_endpoint_reports_both_kinds_of_edge():
+    data = client.post("/api/skyfactor", json=payload()).json()
+    kinds = {e["kind"] for e in data["edges"]}
+    assert kinds == {"road", "neighbor"}
+    for edge in data["edges"]:
+        assert edge["slant"] in ("道路斜線", "隣地斜線")
+        assert edge["label"]
+        assert edge["offset_m"] > 0
+
+
+def test_collapsing_equal_layers_does_not_change_the_answer():
+    """後退量が同じ層をまとめても天空率は変わらない。
+
+    compliant_slabs は「後退量が同じ層は同じ形なので最も高い天端だけ残す」
+    という畳み方をしている。畳まずに全層を並べたものと突き合わせる。
+    """
+    for name in ("case_road12", "case_polygon"):
+        r = result(name)
+        _, _, height_mm, _ = S.planned_slabs(r)
+        for i, edge in enumerate(r.input.site.shape.edges):
+            if not S.slant_applies(r, i):
+                continue
+            top = S.envelope_top_mm(r, i, height_mm)
+            folded = S.compliant_slabs(r, i, top, 1000.0)
+
+            # 畳まずに層をそのまま積む
+            naive, z = [], 1000.0
+            while z < top + 1000.0:
+                z = min(z, top)
+                setbacks = [0.0] * len(r.input.site.shape.edges)
+                setbacks[i] = S._envelope_setback_mm(r, i, z)
+                region = G.buildable_region(r.input.site.shape, setbacks, 0.0)
+                if not region.is_empty:
+                    naive.append(S.Slab(polygon=region, top_mm=z))
+                if z >= top:
+                    break
+                z += 1000.0
+
+            assert len(folded) <= len(naive)
+            for position in S.measurement_positions(r, i):
+                assert S.sky_factor(folded, position) == pytest.approx(
+                    S.sky_factor(naive, position), abs=1e-12), f"{name} 辺{i}"
+
+
+def test_the_grid_search_still_finds_the_same_footprint():
+    """格子の内外判定をまとめて行うようにしても、選ばれる矩形は変わらない。
+
+    速度のために shapely をベクトル化して呼ぶようにした。1点ずつ判定する
+    素朴な実装と、選ばれる矩形が完全に一致することを確かめる。
+    """
+    import shapely
+    from shapely.geometry import Point
+
+    region = G.buildable_region(
+        G.polygon_site(
+            [(0.0, 0.0), (26000.0, 0.0), (30000.0, 16000.0),
+             (12000.0, 24000.0), (0.0, 14000.0)],
+            [(G.EdgeKind.ROAD, 8000.0)] + [(G.EdgeKind.NEIGHBOR, 0.0)] * 4,
+        ),
+        [3000.0, 1000.0, 1000.0, 1000.0, 1000.0], 500.0,
+    )
+    grid_mm = 250.0
+    for angle_deg in (0.0, -20.0, 35.0):
+        angle = math.radians(angle_deg)
+        rect = G.largest_inscribed_rectangle(region, angle, grid_mm)
+        assert rect is not None and rect.area > 0
+
+        # 素朴な実装：格子の中心を1点ずつ判定する
+        rotated = shapely.affinity.rotate(region, -angle, origin=(0, 0),
+                                          use_radians=True)
+        minx, miny, maxx, maxy = rotated.bounds
+        cols = max(1, int((maxx - minx) / grid_mm))
+        rows = max(1, int((maxy - miny) / grid_mm))
+        for r in range(rows):
+            for c in range(cols):
+                x = minx + (c + 0.5) * grid_mm
+                y = miny + (r + 0.5) * grid_mm
+                assert rotated.contains(Point(x, y)) == bool(
+                    shapely.contains_xy(rotated, x, y))

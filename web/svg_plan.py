@@ -278,6 +278,17 @@ SKY_COLORS = {
 }
 
 
+def _sky_bbox(geom: P.PlanGeometry, study) -> tuple[float, float, float, float]:
+    """敷地・道路に加えて、すべての算定位置を含む範囲。"""
+    x0, y0, x1, y1 = geom.local_bbox()
+    for check in study.edges:
+        for point in check.points:
+            px, py = point.position
+            x0, y0 = min(x0, px), min(y0, py)
+            x1, y1 = max(x1, px), max(y1, py)
+    return (x0, y0, x1, y1)
+
+
 def render_sky_plan(result: VolumeResult, study) -> str:
     """天空率の検討図。計画建築物の外形と、道路の反対側に並ぶ算定位置を描く。
 
@@ -285,11 +296,20 @@ def render_sky_plan(result: VolumeResult, study) -> str:
     足りなければ赤。最も不利な位置には不足分を添える。
     """
     geom = P.build(result)
-    c = _make_canvas(geom, SITE_VIEW_W, SITE_PAD)
+    # 隣地の算定位置は境界線から12.4〜16m外側にあり、敷地と道路だけの範囲には
+    # 収まらない。すべての算定位置を含むように外枠を広げる。
+    c = _make_canvas(geom, SITE_VIEW_W, SITE_PAD,
+                     _sky_bbox(geom, study))
 
     for road in geom.roads:
         c.polygon_local(road.outline, COLORS["road"], COLORS["road_line"], 1.0, cls="road")
     c.polygon_local(geom.site_outline, "none", COLORS["site"], 2.0, cls="site")
+
+    # 算定位置の並ぶ線（境界線を外側へ平行移動したもの）
+    for check in study.edges:
+        if len(check.points) >= 2:
+            (x0, y0), (x1, y1) = check.points[0].position, check.points[-1].position
+            c.line_local(x0, y0, x1, y1, COLORS["muted"], 0.8, dash="3 3")
 
     # 斜線を守った現状の案（1階外形）を薄い破線で残しておく
     if geom.floors:
@@ -305,10 +325,10 @@ def render_sky_plan(result: VolumeResult, study) -> str:
                         SKY_COLORS["planned"], 1.6, cls="planned")
         c.parts.append("</g>")
 
-    # 算定位置（令135条の9第1項）
-    for road_check in study.roads:
-        worst = road_check.worst
-        for point in road_check.points:
+    # 算定位置（道路＝令135条の9第1項 / 隣地＝令135条の10）
+    for check in study.edges:
+        worst = check.worst
+        for point in check.points:
             px, py = c.pt(*point.position)
             color = SKY_COLORS["pass"] if point.passes else SKY_COLORS["fail"]
             c.parts.append(
@@ -321,15 +341,15 @@ def render_sky_plan(result: VolumeResult, study) -> str:
                           anchor="middle", size=10, fill=color)
 
     # 通るようになる案（外壁後退を広げたもの）
-    legend = "青＝計画建築物・灰破線＝斜線を守った案"
+    legend = "青＝計画建築物・灰破線＝斜線を守った案・点線＝算定位置の線"
     if study.suggestion is not None and study.suggestion.outline:
         c.polygon_local(study.suggestion.outline, "none", SKY_COLORS["pass"], 1.6,
                         dash="7 4", cls="suggestion")
         legend += (f"・緑破線＝外壁後退 "
                    f"{study.suggestion.wall_setback_mm / MM:.1f}m で通る案")
 
-    passed = sum(1 for r in study.roads for p in r.points if p.passes)
-    total = sum(len(r.points) for r in study.roads)
+    passed = sum(1 for e in study.edges for p in e.points if p.passes)
+    total = sum(len(e.points) for e in study.edges)
     c.text_px(SITE_PAD, c.height - 20,
               f"算定位置 {passed}/{total} か所で適合建築物以上",
               size=10, fill=COLORS["muted"])

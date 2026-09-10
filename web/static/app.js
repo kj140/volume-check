@@ -672,7 +672,7 @@ function renderSky(data) {
   const cls = data.passes ? "ok" : (data.worth_studying ? "ng" : "none");
   const head = `<p class="verdict ${cls}">${data.verdict}</p>`;
 
-  if (!data.worth_studying || !data.roads.length) {
+  if (!data.worth_studying || !data.edges.length) {
     $("#sky").innerHTML = head + data.notes.map((t) => `<p class="note">${t}</p>`).join("");
     return;
   }
@@ -696,17 +696,23 @@ function renderSky(data) {
           <td>${data.suggestion.wall_setback_m.toFixed(1)}</td></tr>` : ""}
       </tbody></table></div>`;
 
-  const rows = data.roads.flatMap((r) =>
-    r.points.map((p, i) => `<tr class="${p.passes ? "" : "ng"}">
-        <td>${i + 1}</td><td>${r.road_width_m.toFixed(1)}</td>
+  // 境界線ごとに、算定位置を並べる
+  const rows = data.edges.flatMap((e) => [
+    `<tr class="edge ${e.passes ? "ok" : "ng"}"><th colspan="6">
+       ${e.slant}｜${e.label}
+       <span>${e.passes ? "○ 全点で適合建築物以上" :
+         `× 最も不利な位置で ${e.worst_margin_pct.toFixed(2)}pt`}</span></th></tr>`,
+    ...e.points.map((p, i) => `<tr class="${p.passes ? "" : "ng"}">
+        <td>${i + 1}</td><td>${e.offset_m.toFixed(1)}</td>
         <td>${p.planned_pct.toFixed(2)}</td><td>${p.compliant_pct.toFixed(2)}</td>
         <td>${p.margin_pct > 0 ? "+" : ""}${p.margin_pct.toFixed(2)}</td>
-        <td>${p.passes ? "○" : "×"}</td></tr>`)).join("");
+        <td>${p.passes ? "○" : "×"}</td></tr>`),
+  ]).join("");
 
   $("#sky").innerHTML = head + compare +
     (data.svg_sky_plan ? `<div class="figure">${data.svg_sky_plan}</div>` : "") +
     `<div class="table-wrap"><table>
-       <thead><tr><th>算定位置</th><th>幅員(m)</th><th>計画(%)</th><th>適合(%)</th>
+       <thead><tr><th>算定位置</th><th>算定線(m)</th><th>計画(%)</th><th>適合(%)</th>
          <th>差(pt)</th><th>判定</th></tr></thead>
        <tbody>${rows}</tbody></table></div>` +
     data.notes.map((t) => `<p class="note">${t}</p>`).join("");

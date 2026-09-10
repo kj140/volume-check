@@ -212,3 +212,8 @@ label.inline { flex-direction: row; align-items: center; gap: 5px; font-size: 12
 .sweep-status .ng { color: #dc2626; font-weight: 600; }
 button.link { border: none; background: none; padding: 0; font-size: 12px;
               color: var(--accent); cursor: pointer; text-decoration: underline; }
+#sky tr.edge th { text-align: left; background: #f1f5f9; font-size: 11px;
+                  padding-top: 6px; }
+#sky tr.edge th span { float: right; font-weight: 600; }
+#sky tr.edge.ok th span { color: #16a34a; }
+#sky tr.edge.ng th span { color: #dc2626; }

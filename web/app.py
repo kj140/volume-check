@@ -145,7 +145,8 @@ class StudyIn(BaseModel):
         default=False, description="耐火建築物等とするかも振るか")
     check_sky: bool = Field(
         default=False,
-        description="各案について天空率で道路斜線を外せるかも判定するか（法56条7項1号）")
+        description="各案について天空率で斜線制限を外せるかも判定するか"
+                    "（法56条7項1号・2号）")
     limit: int = Field(default=20, ge=1, le=100)
 
     @field_validator("angles_deg")
@@ -456,15 +457,16 @@ def api_studies(payload: StudyIn) -> dict:
 
 @app.post("/api/skyfactor")
 def api_skyfactor(payload: VolumeIn) -> dict:
-    """天空率で道路斜線を緩和できる見込みがあるかを判定する（法56条7項1号）。
+    """天空率で斜線制限を緩和できる見込みがあるかを判定する（法56条7項1号・2号）。
 
     確認申請の判定ではなく、企画段階で「天空率を検討する価値があるか」を
-    見るための試算。隣地斜線・北側斜線の天空率は未対応。
+    見るための試算。道路斜線（令135条の6・9）と隣地斜線（令135条の7・10）が
+    対象で、北側斜線は未対応。
     """
     r = _solve(payload)
     study = skyfactor.evaluate(r)
     result = study.to_dict()
-    result["svg_sky_plan"] = render_sky_plan(r, study) if study.roads else ""
+    result["svg_sky_plan"] = render_sky_plan(r, study) if study.edges else ""
     return result
 
 
