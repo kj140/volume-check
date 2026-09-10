@@ -459,13 +459,16 @@ $("#btn-study").addEventListener("click", async () => {
   if (!lastPayload) return;
   const btn = $("#btn-study");
   btn.disabled = true;
-  $("#studies").innerHTML = `<p class="hint">案を生成中…</p>`;
+  $("#studies").innerHTML = $("#check-sky").checked
+    ? `<p class="hint">案を生成し、天空率を算定中…（数秒かかります）</p>`
+    : `<p class="hint">案を生成中…</p>`;
   try {
     const res = await fetch("/api/studies", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         base: lastPayload,
         try_fireproof: $("#try-fireproof").checked,
+        check_sky: $("#check-sky").checked,
         limit: 12,
       }),
     });
@@ -500,6 +503,7 @@ function renderStudies(data) {
         <span class="lbl">${s.angle_deg > 0 ? "+" : ""}${s.angle_deg}</span></span>`;
   }).join("");
 
+  const withSky = data.cases.some((c) => c.sky);
   const row = (c, cls) => `<tr class="${cls}">
       <td>${c.building_angle_deg > 0 ? "+" : ""}${c.building_angle_deg.toFixed(0)}°</td>
       <td>${c.floor_height_m.toFixed(1)}</td>
@@ -509,7 +513,8 @@ function renderStudies(data) {
       <td>${c.max_height_m.toFixed(2)}</td>
       <td>${n2(c.total_gross_area_m2)}</td>
       <td>${n2(c.total_rentable_area_m2)}</td>
-      <td class="l">${c.dominant_constraint || "—"}</td></tr>`;
+      <td class="l">${c.dominant_constraint || "—"}</td>
+      ${withSky ? skyCell(c.sky) : ""}</tr>`;
 
   $("#studies").innerHTML =
     (sweep.length ? `<div class="sweep">${bars}</div>
@@ -517,8 +522,9 @@ function renderStudies(data) {
     `<div class="table-wrap"><table>
        <thead><tr><th>振り角</th><th>階高(m)</th><th>外壁後退(m)</th><th>仕様</th>
          <th>階数</th><th>最高高さ(m)</th><th>延床(m2)</th><th>貸室(m2)</th>
-         <th class="l">主要因</th></tr></thead>
-       <tbody>${row(b, "base")}${data.cases.map((c, i) => row(c, i === 0 ? "best" : "")).join("")}</tbody>
+         <th class="l">主要因</th>${withSky ? "<th>天空率</th>" : ""}</tr></thead>
+       <tbody>${row(b, "base")}${data.cases.map((c, i) =>
+           row(c, c.added_for_sky ? "added" : (i === 0 ? "best" : ""))).join("")}</tbody>
      </table></div>` +
     data.notes.map((t) => `<p class="note">${t}</p>`).join("");
 }
@@ -591,4 +597,22 @@ function renderSky(data) {
          <th>差(pt)</th><th>判定</th></tr></thead>
        <tbody>${rows}</tbody></table></div>` +
     data.notes.map((t) => `<p class="note">${t}</p>`).join("");
+}
+
+
+/** 複数案の表に出す天空率の判定セル。
+ *
+ * ○ … 道路斜線を天空率で外せる見込み（外した場合の延床の増分を添える）
+ * × … 通らない（最も不利な算定位置での不足分）
+ * — … 外しても延床が増えないので検討する意味がない
+ */
+function skyCell(sky) {
+  if (!sky || !sky.checked) return `<td class="sky" title="未判定">…</td>`;
+  if (!sky.worth) return `<td class="sky" title="道路斜線を外しても延床は増えません">—</td>`;
+  if (sky.passes) {
+    return `<td class="sky ok" title="最も不利な算定位置で ${sky.margin_pct.toFixed(2)}pt の余裕">
+        ○ +${n2(sky.gain_m2)}</td>`;
+  }
+  return `<td class="sky ng" title="通れば延床 ${n2(sky.gain_m2)}m2 の上積み">
+      × ${sky.margin_pct.toFixed(2)}pt</td>`;
 }

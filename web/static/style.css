@@ -197,3 +197,7 @@ label.inline { flex-direction: row; align-items: center; gap: 5px; font-size: 12
 #sky tr.best td { background: #f0fdf4; font-weight: 600; }
 #sky .figure { margin: 10px 0; }
 #sky .note { margin: 6px 0 0; font-size: 12px; }
+#studies td.sky { white-space: nowrap; font-size: 11px; }
+#studies td.sky.ok { color: #16a34a; font-weight: 600; }
+#studies td.sky.ng { color: #dc2626; }
+#studies tr.added td { background: #fffbeb; }

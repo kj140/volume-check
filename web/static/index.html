@@ -154,10 +154,12 @@
       <div class="block-head">
         <h2>複数案の比較</h2>
         <label class="inline"><input id="try-fireproof" type="checkbox"> 耐火建築物等も振る</label>
+        <label class="inline"><input id="check-sky" type="checkbox"> 天空率も判定する</label>
         <button id="btn-study" type="button" class="primary">案を自動生成</button>
       </div>
       <p class="hint">建物の向き・基準階の階高・外壁後退を振って総当たりします。
-        法規条件は敷地で決まるので振りません。</p>
+        法規条件は敷地で決まるので振りません。
+        天空率の判定は案ごとに算定が要るため、上位の案だけを見ます。</p>
       <div id="studies"></div>
     </div>
 

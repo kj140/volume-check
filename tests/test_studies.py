@@ -213,3 +213,136 @@ def test_solve_accepts_a_building_angle():
     res = client.post("/api/solve", json=body)
     assert res.status_code == 200
     assert res.json()["summary"]["building_angle_deg"] == pytest.approx(20.0)
+
+
+# ---------------------------------------------------------------------------
+# 天空率の判定列
+# ---------------------------------------------------------------------------
+
+
+def test_sky_is_not_judged_unless_asked():
+    study = small_study()
+    assert all(c.sky is None for c in study.cases)
+    assert study.baseline.sky is None
+    assert study.sky_suggestion is None
+
+
+def test_sky_is_judged_for_every_case_in_the_table():
+    study = small_study(check_sky=True)
+    assert len(study.cases) <= studies.MAX_SKY_CHECKS
+    for case in study.cases:
+        assert case.sky is not None and case.sky.checked
+    assert study.baseline.sky is not None and study.baseline.sky.checked
+
+
+def test_sky_verdict_matches_judging_that_case_directly():
+    """表に出した判定は、その条件で solve → evaluate し直すと一致する。"""
+    import skyfactor
+
+    study = small_study(check_sky=True)
+    for case in study.cases[:3]:
+        d = copy.deepcopy(payload())
+        d["program"].update(
+            building_angle=case.building_angle_deg,
+            floor_height=case.floor_height_m,
+            wall_setback=case.wall_setback_m,
+            fireproof=case.fireproof,
+        )
+        direct = skyfactor.evaluate(solve(VolumeInput.from_dict(d)), suggest=False)
+        assert case.sky.passes is direct.passes
+        assert case.sky.worth is direct.worth_studying
+        if direct.worst_margin is not None:
+            assert case.sky.margin_pct == pytest.approx(
+                direct.worst_margin * 100.0, abs=1e-3)
+
+
+def test_a_case_with_a_wide_setback_passes_the_sky_check():
+    """外壁後退の大きい案は天空率で道路斜線を外せる。"""
+    study = studies.generate(
+        payload(), angles_deg=(0.0,), floor_heights_m=(4.2,),
+        wall_setbacks_m=(0.5, 3.0), check_sky=True,
+    )
+    by_setback = {c.wall_setback_m: c.sky for c in study.cases}
+    assert by_setback[0.5].passes is False
+    assert by_setback[3.0].passes is True
+    assert by_setback[3.0].gain_m2 > 0
+
+
+def test_the_note_points_at_the_case_that_opens_up_with_sky_factor():
+    study = studies.generate(
+        payload(), angles_deg=(0.0,), floor_heights_m=(4.2,),
+        wall_setbacks_m=(0.5, 3.0), check_sky=True,
+    )
+    assert any("天空率まで見ると" in n for n in study.notes)
+
+
+def test_a_setback_is_suggested_when_no_case_passes():
+    study = studies.generate(
+        payload(), angles_deg=(0.0,), floor_heights_m=(4.2,),
+        wall_setbacks_m=(0.5,), check_sky=True,
+    )
+    assert not any(c.sky.passes for c in study.cases)
+    assert study.sky_suggestion is not None
+    assert study.sky_suggestion.wall_setback_mm > 500.0
+    assert any("まで広げれば" in n for n in study.notes)
+    assert any("延床順" in n for n in study.notes)
+
+
+def test_cases_beyond_the_check_limit_are_marked_unjudged(monkeypatch):
+    monkeypatch.setattr(studies, "MAX_SKY_CHECKS", 2)
+    study = small_study(check_sky=True, limit=5)
+    assert [c.sky.checked for c in study.cases] == [True, True, False, False, False]
+    assert any("未判定" in n for n in study.notes)
+
+
+def test_sky_verdict_survives_the_round_trip_to_dict():
+    study = small_study(check_sky=True, limit=3)
+    for case, raw in zip(study.cases, study.to_dict()["cases"]):
+        assert raw["sky"]["passes"] is case.sky.passes
+        assert raw["sky"]["margin_pct"] == case.sky.margin_pct
+
+
+def test_studies_endpoint_can_judge_the_sky_factor():
+    res = client.post("/api/studies", json={
+        "base": payload(), "angles_deg": [0.0], "floor_heights_m": [4.2],
+        "wall_setbacks_m": [0.5, 3.0], "check_sky": True, "limit": 4,
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert all(c["sky"] and c["sky"]["checked"] for c in data["cases"])
+    assert any(c["sky"]["passes"] for c in data["cases"])
+
+
+def test_studies_endpoint_omits_the_sky_verdict_by_default():
+    res = client.post("/api/studies", json={
+        "base": payload(), "angles_deg": [0.0], "floor_heights_m": [4.2],
+        "wall_setbacks_m": [0.5], "limit": 2,
+    })
+    assert all(c["sky"] is None for c in res.json()["cases"])
+
+
+def test_the_best_case_per_setback_is_added_so_the_column_is_useful():
+    """外壁後退の大きい案は延床順では表に入らないので、後退ごとに1案足す。"""
+    study = studies.generate(
+        payload(), angles_deg=(-5.0, 0.0, 5.0), floor_heights_m=(3.6, 4.2),
+        wall_setbacks_m=(0.5, 3.0), check_sky=True, limit=3,
+    )
+    added = [c for c in study.cases if c.added_for_sky]
+    assert added, "後退3.0mの案が1つも表に出ていない"
+    assert {c.wall_setback_m for c in study.cases} == {0.5, 3.0}
+    assert any(c.sky.passes for c in added)
+    assert any("末尾の" in n for n in study.notes)
+
+
+def test_added_cases_do_not_break_the_floor_area_ordering():
+    study = studies.generate(
+        payload(), angles_deg=(-5.0, 0.0, 5.0), floor_heights_m=(3.6, 4.2),
+        wall_setbacks_m=(0.5, 3.0), check_sky=True, limit=3,
+    )
+    areas = [c.total_gross_area_m2 for c in study.cases]
+    assert areas == sorted(areas, reverse=True)
+
+
+def test_nothing_is_added_when_every_setback_is_already_shown():
+    study = small_study(check_sky=True, limit=50)
+    assert not any(c.added_for_sky for c in study.cases)

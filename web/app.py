@@ -125,6 +125,9 @@ class StudyIn(BaseModel):
         default=None, description="外壁後退[m]の候補")
     try_fireproof: bool = Field(
         default=False, description="耐火建築物等とするかも振るか")
+    check_sky: bool = Field(
+        default=False,
+        description="各案について天空率で道路斜線を外せるかも判定するか（法56条7項1号）")
     limit: int = Field(default=20, ge=1, le=100)
 
 
@@ -368,17 +371,22 @@ def api_studies(payload: StudyIn) -> dict:
     外壁後退・耐火建築物等とするか、という計画側の選択だけ。
     """
     base = payload.base.model_dump()
+    # 天空率まで見るときは、外壁後退の候補を広げた既定を使う（studies 参照）
+    angles_deg = tuple(payload.angles_deg) if payload.angles_deg else (
+        studies.SKY_ANGLES_DEG if payload.check_sky else studies.DEFAULT_ANGLES_DEG)
+    wall_setbacks_m = tuple(payload.wall_setbacks_m) if payload.wall_setbacks_m else (
+        studies.SKY_WALL_SETBACKS_M if payload.check_sky
+        else studies.DEFAULT_WALL_SETBACKS_M)
     try:
         study = studies.generate(
             base,
-            angles_deg=tuple(payload.angles_deg) if payload.angles_deg
-            else studies.DEFAULT_ANGLES_DEG,
+            angles_deg=angles_deg,
             floor_heights_m=tuple(payload.floor_heights_m) if payload.floor_heights_m
             else studies.DEFAULT_FLOOR_HEIGHTS_M,
-            wall_setbacks_m=tuple(payload.wall_setbacks_m) if payload.wall_setbacks_m
-            else studies.DEFAULT_WALL_SETBACKS_M,
+            wall_setbacks_m=wall_setbacks_m,
             fireproof_options=(False, True) if payload.try_fireproof else (),
             limit=payload.limit,
+            check_sky=payload.check_sky,
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
@@ -386,11 +394,7 @@ def api_studies(payload: StudyIn) -> dict:
     result = study.to_dict()
     result["angle_sweep"] = [
         {"angle_deg": a, "total_gross_area_m2": round(area, 2)}
-        for a, area in studies.sweep_angles(
-            base,
-            tuple(payload.angles_deg) if payload.angles_deg
-            else studies.DEFAULT_ANGLES_DEG,
-        )
+        for a, area in studies.sweep_angles(base, angles_deg)
     ]
     return result
 

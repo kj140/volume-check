@@ -394,3 +394,18 @@ def test_deployment_requirements_include_every_runtime_dependency():
               for line in text.splitlines()
               if line.strip() and not line.lstrip().startswith("#")}
     assert {"ezdxf", "shapely", "numpy", "fastapi", "uvicorn", "httpx"} <= listed
+
+
+def test_the_verdict_does_not_depend_on_the_layer_thickness():
+    """適合建築物の刻み方を変えても余裕は変わらない。
+
+    道路斜線の斜面は反対側の境界線からの距離に比例するので、その境界線上に
+    ある算定位置から見ると斜面上のどの点も仰角が等しい。層に刻んでも仰角の
+    最大値は変わらない。
+    """
+    for name in ("case_road12", "case_polygon"):
+        r = result(name)
+        margins = [S.evaluate(r, layer_mm=layer, suggest=False).worst_margin
+                   for layer in (250.0, 1000.0, 3000.0)]
+        assert margins[0] == pytest.approx(margins[1], abs=1e-6), name
+        assert margins[0] == pytest.approx(margins[2], abs=1e-6), name
