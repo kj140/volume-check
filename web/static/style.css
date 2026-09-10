@@ -201,3 +201,14 @@ label.inline { flex-direction: row; align-items: center; gap: 5px; font-size: 12
 #studies td.sky.ok { color: #16a34a; font-weight: 600; }
 #studies td.sky.ng { color: #dc2626; }
 #studies tr.added td { background: #fffbeb; }
+
+/* --- 複数案の探索範囲 ------------------------------------------------------ */
+#sweep-ranges { margin: 6px 0 4px; font-size: 12px; }
+#sweep-ranges > summary { cursor: pointer; color: var(--muted); }
+#sweep-ranges > .grid { margin-top: 8px; }
+#sweep-ranges input { font-variant-numeric: tabular-nums; }
+.sweep-status { display: flex; align-items: center; gap: 10px;
+                margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.sweep-status .ng { color: #dc2626; font-weight: 600; }
+button.link { border: none; background: none; padding: 0; font-size: 12px;
+              color: var(--accent); cursor: pointer; text-decoration: underline; }

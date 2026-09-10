@@ -160,6 +160,27 @@
       <p class="hint">建物の向き・基準階の階高・外壁後退を振って総当たりします。
         法規条件は敷地で決まるので振りません。
         天空率の判定は案ごとに算定が要るため、上位の案だけを見ます。</p>
+
+      <details id="sweep-ranges">
+        <summary>探索範囲を編集</summary>
+        <div class="grid">
+          <label class="span2">振り角 <small>(度・カンマ区切り)</small>
+            <input id="sw-angles" type="text" inputmode="text" spellcheck="false">
+          </label>
+          <label>基準階の階高 <small>(m)</small>
+            <input id="sw-heights" type="text" inputmode="text" spellcheck="false">
+          </label>
+          <label>外壁後退 <small>(m)</small>
+            <input id="sw-setbacks" type="text" inputmode="text" spellcheck="false">
+          </label>
+          <label>表示する案の数
+            <input id="sw-limit" type="number" step="1" min="1" max="100" value="12">
+          </label>
+        </div>
+        <p class="sweep-status"><span id="sw-count"></span>
+          <button id="sw-reset" type="button" class="link">既定に戻す</button></p>
+      </details>
+
       <div id="studies"></div>
     </div>
 

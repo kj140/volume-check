@@ -7,6 +7,20 @@
 const $ = (sel) => document.querySelector(sel);
 const form = $("#form");
 
+/** FastAPI のエラー本文を1行にする。
+ *
+ * detail は文字列のことも、Pydantic の検証エラーの配列のこともある。
+ */
+function errorMessage(body, status) {
+  const detail = body && body.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((e) => (e.msg || "").replace(/^Value error, /, "")).join(" / ");
+  }
+  return `HTTP ${status}`;
+}
+
+
 // ---------------------------------------------------------------------------
 // 地図
 // ---------------------------------------------------------------------------
@@ -249,7 +263,7 @@ async function solve() {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail ? JSON.stringify(err.detail) : `HTTP ${res.status}`);
+      throw new Error(errorMessage(err, res.status));
     }
     render(await res.json());
     showError(null);
@@ -453,6 +467,104 @@ form.road_side.addEventListener("change", () => updateFromRect(false));
 
 
 // ---------------------------------------------------------------------------
+// 複数案の比較 — 探索範囲
+// ---------------------------------------------------------------------------
+// 既定値はサーバ（studies.py）が持っている。画面は受け取って表示するだけ。
+let sweepDefaults = null;
+
+const SWEEP_FIELDS = {
+  "#sw-angles": "angles_deg",
+  "#sw-heights": "floor_heights_m",
+  "#sw-setbacks": "wall_setbacks_m",
+};
+
+/** "-10, -5、0 5" のような並びを数値の配列にする。全角カンマ・空白も区切りとして扱う。 */
+function parseNumberList(text) {
+  const parts = String(text).split(/[,、\s]+/).filter((t) => t !== "");
+  const values = [];
+  for (const part of parts) {
+    const v = Number(part);
+    if (!Number.isFinite(v)) return null;
+    if (!values.includes(v)) values.push(v);
+  }
+  return values.length ? values.sort((a, b) => a - b) : null;
+}
+
+/** 入力欄の現在値。1つでも読めなければ null。 */
+function readSweep() {
+  const out = {};
+  for (const [sel, key] of Object.entries(SWEEP_FIELDS)) {
+    const values = parseNumberList($(sel).value);
+    if (!values) return null;
+    out[key] = values;
+  }
+  return out;
+}
+
+function fillSweep(preset) {
+  for (const [sel, key] of Object.entries(SWEEP_FIELDS)) {
+    $(sel).value = preset[key].join(", ");
+  }
+  updateSweepCount();
+}
+
+/** いまの入力が、既定（通常／天空率）のどちらかとそのまま一致するか。 */
+function sweepIsDefault() {
+  const current = readSweep();
+  if (!current || !sweepDefaults) return false;
+  const same = (preset) => Object.values(SWEEP_FIELDS).every(
+    (key) => current[key].join(",") === [...preset[key]].sort((a, b) => a - b).join(","));
+  return same(sweepDefaults) || same(sweepDefaults.sky);
+}
+
+function updateSweepCount() {
+  const el = $("#sw-count");
+  const current = readSweep();
+  if (!current) {
+    el.textContent = "数値をカンマ区切りで入力してください。";
+    el.className = "ng";
+    $("#btn-study").disabled = true;
+    return;
+  }
+  const total = current.angles_deg.length * current.floor_heights_m.length
+    * current.wall_setbacks_m.length * ($("#try-fireproof").checked ? 2 : 1);
+  const max = sweepDefaults ? sweepDefaults.max_cases : 400;
+  const over = total > max;
+  el.textContent = over
+    ? `${total} 通り — 多すぎます（${max} 通り以下にしてください）`
+    : `${total} 通りを試算します`;
+  el.className = over ? "ng" : "";
+  $("#btn-study").disabled = over;
+}
+
+for (const sel of Object.keys(SWEEP_FIELDS)) {
+  $(sel).addEventListener("input", updateSweepCount);
+}
+$("#try-fireproof").addEventListener("change", updateSweepCount);
+
+// 天空率を立てると外壁後退の候補を広げる。ただし手で編集した範囲は上書きしない。
+$("#check-sky").addEventListener("change", () => {
+  if (sweepDefaults && sweepIsDefault()) {
+    fillSweep($("#check-sky").checked ? sweepDefaults.sky : sweepDefaults);
+  }
+});
+
+$("#sw-reset").addEventListener("click", () => {
+  if (!sweepDefaults) return;
+  fillSweep($("#check-sky").checked ? sweepDefaults.sky : sweepDefaults);
+  $("#sw-limit").value = sweepDefaults.limit;
+});
+
+fetch("/api/study-defaults").then((r) => r.json()).then((d) => {
+  sweepDefaults = d;
+  $("#sw-limit").value = d.limit;
+  fillSweep(d);
+}).catch(() => {
+  $("#sw-count").textContent = "既定値を取得できませんでした。";
+});
+
+
+// ---------------------------------------------------------------------------
 // 複数案の比較
 // ---------------------------------------------------------------------------
 $("#btn-study").addEventListener("click", async () => {
@@ -467,14 +579,15 @@ $("#btn-study").addEventListener("click", async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         base: lastPayload,
+        ...(readSweep() || {}),
         try_fireproof: $("#try-fireproof").checked,
         check_sky: $("#check-sky").checked,
-        limit: 12,
+        limit: parseInt($("#sw-limit").value, 10) || 12,
       }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      throw new Error(errorMessage(err, res.status));
     }
     renderStudies(await res.json());
   } catch (e) {
@@ -545,7 +658,7 @@ $("#btn-sky").addEventListener("click", async () => {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      throw new Error(errorMessage(err, res.status));
     }
     renderSky(await res.json());
   } catch (e) {

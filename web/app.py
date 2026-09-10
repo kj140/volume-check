@@ -30,7 +30,7 @@ import httpx                                                # noqa: E402
 from fastapi import FastAPI, HTTPException, Query          # noqa: E402
 from fastapi.responses import FileResponse, HTMLResponse   # noqa: E402
 from fastapi.staticfiles import StaticFiles                # noqa: E402
-from pydantic import BaseModel, Field                      # noqa: E402
+from pydantic import BaseModel, Field, field_validator     # noqa: E402
 from starlette.background import BackgroundTask            # noqa: E402
 
 import constants as C                                      # noqa: E402
@@ -63,6 +63,16 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # リクエスト / レスポンス
 # ---------------------------------------------------------------------------
+
+
+def _within(values: list[float] | None, low: float, high: float,
+            message: str) -> list[float] | None:
+    """候補の値がすべて範囲内かを確かめ、重複を除いて並べ直す。"""
+    if values is None:
+        return None
+    if any(v < low or v > high for v in values):
+        raise ValueError(message)
+    return sorted(dict.fromkeys(values))
 
 
 class SiteIn(BaseModel):
@@ -114,21 +124,44 @@ class VolumeIn(BaseModel):
 
 
 class StudyIn(BaseModel):
-    """複数案の自動生成。振るのは計画側の選択だけ。"""
+    """複数案の自動生成。振るのは計画側の選択だけ。
+
+    候補の並びは画面から編集できる。値の妥当性はここで弾き、solve() まで
+    降ろさない（降ろすと打ち切り理由として出てしまい、原因が分かりにくい）。
+    """
 
     base: VolumeIn
     angles_deg: list[float] | None = Field(
-        default=None, description="前面道路に対する振り角[度]の候補")
+        default=None, min_length=1, max_length=181,
+        description="前面道路に対する振り角[度]の候補")
     floor_heights_m: list[float] | None = Field(
-        default=None, description="基準階の階高[m]の候補")
+        default=None, min_length=1, max_length=40,
+        description="基準階の階高[m]の候補")
     wall_setbacks_m: list[float] | None = Field(
-        default=None, description="外壁後退[m]の候補")
+        default=None, min_length=1, max_length=40,
+        description="外壁後退[m]の候補")
+
     try_fireproof: bool = Field(
         default=False, description="耐火建築物等とするかも振るか")
     check_sky: bool = Field(
         default=False,
         description="各案について天空率で道路斜線を外せるかも判定するか（法56条7項1号）")
     limit: int = Field(default=20, ge=1, le=100)
+
+    @field_validator("angles_deg")
+    @classmethod
+    def _check_angles(cls, v: list[float] | None) -> list[float] | None:
+        return _within(v, -90.0, 90.0, "振り角は -90〜90 度で指定してください")
+
+    @field_validator("floor_heights_m")
+    @classmethod
+    def _check_heights(cls, v: list[float] | None) -> list[float] | None:
+        return _within(v, 0.1, 30.0, "階高は 0.1〜30m で指定してください")
+
+    @field_validator("wall_setbacks_m")
+    @classmethod
+    def _check_setbacks(cls, v: list[float] | None) -> list[float] | None:
+        return _within(v, 0.0, 50.0, "外壁後退は 0〜50m で指定してください")
 
 
 class RectIn(BaseModel):
@@ -360,6 +393,28 @@ def api_solve(payload: VolumeIn) -> dict:
         "svg": render_svg(r),
         "svg_site_plan": render_site_plan(r),
         "svg_floor_plans": render_floor_plans(r),
+    }
+
+
+@app.get("/api/study-defaults")
+def study_defaults() -> dict:
+    """複数案の探索範囲の既定値。画面の入力欄の初期値に使う。
+
+    既定は studies.py 側にあり、ここでは配るだけ。画面とサーバで別々に
+    持たないようにしている。
+    """
+    return {
+        "angles_deg": list(studies.DEFAULT_ANGLES_DEG),
+        "floor_heights_m": list(studies.DEFAULT_FLOOR_HEIGHTS_M),
+        "wall_setbacks_m": list(studies.DEFAULT_WALL_SETBACKS_M),
+        "sky": {
+            "angles_deg": list(studies.SKY_ANGLES_DEG),
+            "floor_heights_m": list(studies.DEFAULT_FLOOR_HEIGHTS_M),
+            "wall_setbacks_m": list(studies.SKY_WALL_SETBACKS_M),
+        },
+        "max_cases": studies.MAX_CASES,
+        "max_sky_checks": studies.MAX_SKY_CHECKS,
+        "limit": 12,
     }
 
 

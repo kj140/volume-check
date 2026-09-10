@@ -346,3 +346,82 @@ def test_added_cases_do_not_break_the_floor_area_ordering():
 def test_nothing_is_added_when_every_setback_is_already_shown():
     study = small_study(check_sky=True, limit=50)
     assert not any(c.added_for_sky for c in study.cases)
+
+
+# ---------------------------------------------------------------------------
+# 探索範囲（画面から編集する）
+# ---------------------------------------------------------------------------
+
+
+def test_study_defaults_endpoint_serves_the_values_the_module_holds():
+    """画面の初期値はサーバの既定をそのまま配る（二重に持たない）。"""
+    d = client.get("/api/study-defaults").json()
+    assert d["angles_deg"] == list(studies.DEFAULT_ANGLES_DEG)
+    assert d["floor_heights_m"] == list(studies.DEFAULT_FLOOR_HEIGHTS_M)
+    assert d["wall_setbacks_m"] == list(studies.DEFAULT_WALL_SETBACKS_M)
+    assert d["sky"]["angles_deg"] == list(studies.SKY_ANGLES_DEG)
+    assert d["sky"]["wall_setbacks_m"] == list(studies.SKY_WALL_SETBACKS_M)
+    assert d["max_cases"] == studies.MAX_CASES
+    assert d["max_sky_checks"] == studies.MAX_SKY_CHECKS
+    assert 1 <= d["limit"] <= 100
+
+
+def test_the_defaults_are_within_what_the_endpoint_accepts():
+    """既定値をそのまま送り返しても弾かれない。"""
+    d = client.get("/api/study-defaults").json()
+    for preset in (d, d["sky"]):
+        res = client.post("/api/studies", json={
+            "base": payload(), "angles_deg": preset["angles_deg"],
+            "floor_heights_m": preset["floor_heights_m"],
+            "wall_setbacks_m": preset["wall_setbacks_m"], "limit": 2,
+        })
+        assert res.status_code == 200
+
+
+def test_custom_ranges_are_what_gets_generated():
+    res = client.post("/api/studies", json={
+        "base": payload(), "angles_deg": [-7.0, 0.0], "floor_heights_m": [3.7],
+        "wall_setbacks_m": [0.8, 2.2], "limit": 50,
+    })
+    assert res.status_code == 200
+    cases = res.json()["cases"]
+    assert {c["building_angle_deg"] for c in cases} <= {-7.0, 0.0}
+    assert {c["floor_height_m"] for c in cases} == {3.7}
+    assert {c["wall_setback_m"] for c in cases} <= {0.8, 2.2}
+
+
+def test_duplicate_values_in_a_range_are_collapsed():
+    res = client.post("/api/studies", json={
+        "base": payload(), "angles_deg": [0.0, 0.0, 5.0], "floor_heights_m": [4.2, 4.2],
+        "wall_setbacks_m": [0.5], "limit": 50,
+    })
+    assert res.status_code == 200
+    assert len(res.json()["cases"]) == 2
+
+
+@pytest.mark.parametrize("field,value,message", [
+    ("angles_deg", [120.0], "振り角"),
+    ("angles_deg", [-91.0], "振り角"),
+    ("floor_heights_m", [0.0], "階高"),
+    ("floor_heights_m", [31.0], "階高"),
+    ("wall_setbacks_m", [-1.0], "外壁後退"),
+    ("wall_setbacks_m", [51.0], "外壁後退"),
+])
+def test_out_of_range_values_are_rejected_with_a_readable_message(field, value, message):
+    res = client.post("/api/studies", json={"base": payload(), field: value})
+    assert res.status_code == 422
+    assert message in " ".join(e["msg"] for e in res.json()["detail"])
+
+
+@pytest.mark.parametrize("field", ["angles_deg", "floor_heights_m", "wall_setbacks_m"])
+def test_an_empty_range_is_rejected(field):
+    res = client.post("/api/studies", json={"base": payload(), field: []})
+    assert res.status_code == 422
+
+
+def test_the_angle_chart_follows_the_edited_angles():
+    res = client.post("/api/studies", json={
+        "base": payload(), "angles_deg": [-3.0, 0.0, 3.0],
+        "floor_heights_m": [4.2], "wall_setbacks_m": [0.5], "limit": 5,
+    })
+    assert [s["angle_deg"] for s in res.json()["angle_sweep"]] == [-3.0, 0.0, 3.0]
