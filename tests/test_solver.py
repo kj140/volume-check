@@ -358,11 +358,16 @@ def test_low_rise_district_has_no_neighbor_slant():
 #   道路斜線 勾配 1.5、適用距離 25m（商業・指定600% → 別表第三2の項）
 #   隣地斜線 立ち上がり 31m、勾配 2.5
 #
-# 建蔽率による絞り込み:
+# 辺ごとの控除量:
+#   外壁後退と斜線はどちらも「境界線からの離れ」なので大きいほうだけが効く。
+#   建蔽率の絞り込み t は領域全体を一律に寄せるものなので、これに足す。
+#     控除量 = max(外壁後退 0.5m, その辺の斜線後退) + t
+#
+# 建蔽率による絞り込み t:
 #   1階は斜線がかからず  間口 20 - 0.5×2 = 19.0m、奥行 30 - 0.5×2 = 29.0m → 551.0m2
 #   建蔽率上限 600 × 0.8 = 480m2 を超えるので (19-2t)(29-2t) = 480 を解く
 #   4t^2 - 96t + 71 = 0 → t = (48 - sqrt(2304 - 284)) / 4 = (48 - 44.9444) / 4 = 0.76390m
-#   → 全階 間口 17.4722m / 奥行から 1.5278m を控除
+#   → 斜線のかからない階は 間口 17.4722m × 奥行 27.4722m = 480.0m2
 
 
 def test_hand_calc_bcr_inset():
@@ -378,44 +383,77 @@ def test_hand_calc_road12():
     """道路12m。容積低減なし（600%、上限3600m2）。
 
     道路側後退 = max(0, min(天端/1.5, 25m) - 12m)
-      1-4階: 天端 4.5 / 8.7 / 12.9 / 17.1m → 天端/1.5 = 3.0 / 5.8 / 8.6 / 11.4m → 後退 0
-      5階  : 21.3 / 1.5 = 14.2m        → 2.2m   奥行 30-2.2-1.5278 = 26.2722 ... 面積 441.56
-      6階  : 25.5 / 1.5 = 17.0m        → 5.0m               面積 392.64
-      7階  : 29.7 / 1.5 = 19.8m        → 7.8m               面積 343.72
-      8階  : 33.9 / 1.5 = 22.6m        → 10.6m  隣地 (33.9-31)/2.5 = 1.16m   面積 238.08
-      9階  : 38.1 / 1.5 = 25.4m > 25m  → 適用距離で頭打ち 25-12 = 13.0m
-                                          隣地 (38.1-31)/2.5 = 2.84m         面積 137.17
-      10階 : 面積 83.92m2 < 100m2 → 打ち切り
-    累計 3473.16m2 ≦ 3600m2、最高高さ 38.1m
+    隣地側後退 = max(0, (天端 - 31m) / 2.5)
+    辺ごとの控除量 = max(0.5m, その辺の斜線後退) + t   （t = 0.76390m）
+
+      階  天端   道路   隣地   間口              奥行                      面積
+       1   4.5   0.00   0.00  20-2(0.5+t)=17.4722  30-2(0.5+t)=27.4722   480.000
+       2   8.7   0.00   0.00  17.4722              27.4722               480.000
+       3  12.9   0.00   0.00  17.4722              27.4722               480.000
+       4  17.1   0.00   0.00  17.4722              27.4722               480.000
+       5  21.3   2.20   0.00  17.4722  30-(2.2+t)-(0.5+t)     =25.7722   450.297
+       6  25.5   5.00   0.00  17.4722  30-(5.0+t)-(0.5+t)     =22.9722   401.375
+       7  29.7   7.80   0.00  17.4722  30-(7.8+t)-(0.5+t)     =20.1722   352.453
+       8  33.9  10.60   1.16  20-2(1.16+t)=16.1522  30-(10.6+t)-(1.16+t)=16.7122  269.939
+       9  38.1  13.00   2.84  20-2(2.84+t)=12.7922  30-(13.0+t)-(2.84+t)=12.6322  161.594
+
+      9階の道路側は 38.1/1.5 = 25.4m > 適用距離25m なので 25-12 = 13.0m で頭打ち。
+      10階（天端42.3m）は面積 103.303m2 で最小成立面積は満たすが、
+      累計 3555.658 + 103.303 = 3658.96m2 が上限3600m2 を超えるため打ち切り。
+
+    累計 3555.658m2 ≦ 3600m2、最高高さ 38.1m
     """
     r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
     assert r.far_effective == pytest.approx(6.0)
     assert r.max_far_area_mm2 == pytest.approx(3600.0 * M2)
     assert r.floor_count == 9
     assert r.max_height_mm == pytest.approx(38.1 * MM)
-    assert r.stop_reason is StopReason.BELOW_MIN_FLOOR_AREA
+    assert r.stop_reason is StopReason.FAR_LIMIT_REACHED
 
     expected_setback_road_m = [0, 0, 0, 0, 2.2, 5.0, 7.8, 10.6, 13.0]
-    expected_area_m2 = [480.0, 480.0, 480.0, 480.0, 441.561,
-                        392.639, 343.717, 238.075, 137.169]
+    expected_area_m2 = [480.0, 480.0, 480.0, 480.0, 450.297,
+                        401.375, 352.453, 269.939, 161.594]
     for f, sb, area in zip(r.floors, expected_setback_road_m, expected_area_m2):
         assert f.setback_road_mm == pytest.approx(sb * MM, abs=0.01 * MM), f"{f.floor}階"
         assert f.gross_area_mm2 == pytest.approx(area * M2, rel=1e-4), f"{f.floor}階"
 
-    assert r.total_far_area_mm2 == pytest.approx(3473.161 * M2, rel=1e-5)
+    assert r.total_far_area_mm2 == pytest.approx(3555.658 * M2, rel=1e-5)
     assert r.floors[-1].governing == "道路斜線(適用距離で頭打ち) + 隣地斜線 + 建蔽率"
+
+
+def test_hand_calc_setbacks_take_the_larger_not_the_sum():
+    """外壁後退0.5mと斜線後退は足さず、大きいほうだけが効く。
+
+    8階は隣地斜線が 1.16m を要求する。間口は 20 - 2×(1.16 + t) であって、
+    20 - 2×(0.5 + 1.16 + t) ではない。
+    """
+    r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
+    t = r.bcr_inset_mm / MM
+    f8 = r.floors[7]
+    assert f8.setback_neighbor_mm == pytest.approx(1.16 * MM, abs=0.01 * MM)
+    assert f8.width_mm / MM == pytest.approx(20 - 2 * (1.16 + t), abs=0.01)
+    assert f8.width_mm / MM != pytest.approx(20 - 2 * (0.5 + 1.16 + t), abs=0.01)
+
+    # 斜線が外壁後退より小さい階は、外壁後退がそのまま効く
+    f1 = r.floors[0]
+    assert f1.setback_neighbor_mm == 0.0
+    assert f1.width_mm / MM == pytest.approx(20 - 2 * (0.5 + t), abs=0.01)
 
 
 def test_hand_calc_road6():
     """道路6m。容積が 6 × 0.6 = 360% に低減され、上限 2160m2。
 
-    道路側後退 = max(0, 天端/1.5 - 6m)
-      1階 4.5 → 3.0m  → 0       面積 480.00
-      2階 8.7 → 5.8m  → 0       面積 480.00
-      3階 12.9 → 8.6m → 2.6m    面積 434.57
-      4階 17.1 → 11.4m→ 5.4m    面積 385.65
-      5階 21.3 → 14.2m→ 8.2m    面積 336.73  累計 2116.95 ≦ 2160
-      6階 25.5 → 17.0m→ 11.0m   面積 287.81  累計 2404.76 > 2160 → 打ち切り
+    道路側後退 = max(0, 天端/1.5 - 6m)。隣地斜線は 31m 未満なのでどの階も 0。
+    間口はどの階も 20 - 2×(0.5 + t) = 17.4722m、奥行は 30 - (道路側) - (0.5 + t)。
+
+      階  天端   道路   奥行                          面積      累計
+       1   4.5   0.00   30-(0.5+t)-(0.5+t) = 27.4722  480.000   480.000
+       2   8.7   0.00                        27.4722  480.000   960.000
+       3  12.9   2.60   30-(2.6+t)-(0.5+t) = 25.3722  443.308  1403.308
+       4  17.1   5.40                        22.5722  394.386  1797.694
+       5  21.3   8.20                        19.7722  345.464  2143.159
+       6  25.5  11.00                        16.9722  296.542  → 2439.70 > 2160 で打切
+
     最高高さ 21.3m
     """
     r = solve(VolumeInput.from_json_file(SAMPLES / "case_road6.json"))
@@ -426,12 +464,12 @@ def test_hand_calc_road6():
     assert r.stop_reason is StopReason.FAR_LIMIT_REACHED
 
     expected_setback_road_m = [0, 0, 2.6, 5.4, 8.2]
-    expected_area_m2 = [480.0, 480.0, 434.572, 385.650, 336.728]
+    expected_area_m2 = [480.0, 480.0, 443.308, 394.386, 345.464]
     for f, sb, area in zip(r.floors, expected_setback_road_m, expected_area_m2):
         assert f.setback_road_mm == pytest.approx(sb * MM, abs=0.01 * MM), f"{f.floor}階"
         assert f.gross_area_mm2 == pytest.approx(area * M2, rel=1e-4), f"{f.floor}階"
 
-    assert r.total_far_area_mm2 == pytest.approx(2116.950 * M2, rel=1e-5)
+    assert r.total_far_area_mm2 == pytest.approx(2143.159 * M2, rel=1e-5)
 
 
 def test_road6_and_road12_differ():
@@ -475,13 +513,26 @@ def test_all_floors_fit_within_slant_envelopes(road_width, district):
         assert neighbor_margin >= -1e-6, f"{f.floor}階が隣地斜線を超えている"
 
 
-def test_slant_margin_equals_wall_setback_effect_when_road_slant_governs():
-    """道路斜線が支配している階の余裕は、外壁後退＋建蔽率絞り込み × 勾配に一致する。"""
+def test_slant_margin_equals_the_bcr_inset_when_road_slant_governs():
+    """道路斜線が支配している階の余裕は、建蔽率の絞り込み × 勾配に一致する。
+
+    外壁後退は斜線と足し合わせず大きいほうを採るので、斜線が支配している階では
+    外壁後退は余裕を生まない。余裕を作るのは建蔽率の絞り込みだけ。
+    """
+    r = solve(make(site={"road_width": 6.0}))
+    for f, road_margin, _ in _slant_margins(r):
+        if f.setback_road_mm > 0:
+            assert road_margin == pytest.approx(
+                r.bcr_inset_mm * r.road_slant_gradient, abs=1.0)
+
+
+def test_the_wall_setback_governs_only_while_the_slant_is_smaller():
+    """外壁後退より斜線が小さい階では、外壁後退の分だけ余裕が出る。"""
     r = solve(make(site={"road_width": 6.0}))
     edge = r.input.program.wall_setback_mm + r.bcr_inset_mm
     for f, road_margin, _ in _slant_margins(r):
-        if f.setback_road_mm > 0:
-            assert road_margin == pytest.approx(edge * r.road_slant_gradient, abs=1.0)
+        if f.setback_road_mm == 0:
+            assert road_margin >= edge * r.road_slant_gradient - 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -492,22 +543,28 @@ def test_slant_margin_equals_wall_setback_effect_when_road_slant_governs():
 def test_impacts_are_the_marginal_gain_of_relaxing_each_rule():
     """各規定の増分は「その規定だけを外したときの床面積の増分」に一致する。
 
-    道路12m・商業の 8階（天端33.90m）で手計算:
-      建蔽率の絞り込み t = (48 - sqrt(2020)) / 4 = 0.76389749m
-      外壁後退0.5m と合わせて 1周あたり 1.26389749m を内側に寄せる。
+    道路12m・商業の 8階（天端33.90m）で手計算。
+    控除量は辺ごとに max(外壁後退0.5m, その辺の斜線) + t、t = (48-sqrt(2020))/4。
 
-      実際       (20 - 2×1.16 - 2×1.264) × (30 - 10.6 - 1.16 - 2×1.264)
-                 = 15.15221 × 15.71221 = 238.07455m2
-      道路斜線なし 15.15221 × 26.31221 = 398.68793m2 → 増分 160.61337m2
-      隣地斜線なし 17.47221 × 16.87221 = 294.79463m2 → 増分  56.72007m2
+      t = 0.76389747m、道路側 10.6m、隣地側 1.16m
+
+      実際         (20 - 2×(1.16+t)) × (30 - (10.6+t) - (1.16+t))
+                   = 16.15221 × 16.71221 = 269.93896m2
+      道路斜線なし  16.15221 × (30 - (0.5+t) - (1.16+t)) = 16.15221 × 26.81221
+                   = 433.07623m2 → 増分 163.13727m2
+      隣地斜線なし  (20 - 2×(0.5+t)) × (30 - (10.6+t) - (0.5+t))
+                   = 17.47221 × 17.37221 = 303.53073m2 → 増分 33.59177m2
+      建蔽率なし    (20 - 2×1.16) × (30 - 10.6 - 1.16) = 17.68 × 18.24
+                   = 322.48320m2 → 増分 52.54424m2
     """
     r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
     f8 = r.floors[7]
     assert f8.floor == 8
-    assert f8.gross_area_mm2 == pytest.approx(238.07455 * M2, rel=1e-6)
+    assert f8.gross_area_mm2 == pytest.approx(269.93896 * M2, rel=1e-6)
     gains = {i.constraint: i.area_gain_mm2 for i in f8.impacts}
-    assert gains[C_.Constraint.ROAD_SLANT] == pytest.approx(160.61337 * M2, rel=1e-6)
-    assert gains[C_.Constraint.NEIGHBOR_SLANT] == pytest.approx(56.72007 * M2, rel=1e-6)
+    assert gains[C_.Constraint.ROAD_SLANT] == pytest.approx(163.13727 * M2, rel=1e-6)
+    assert gains[C_.Constraint.NEIGHBOR_SLANT] == pytest.approx(33.59177 * M2, rel=1e-6)
+    assert gains[C_.Constraint.BCR] == pytest.approx(52.54424 * M2, rel=1e-6)
 
 
 def test_impacts_are_sorted_and_non_negative():
@@ -567,12 +624,30 @@ def test_constraint_gains_are_aggregated_and_sorted():
     gains = r.constraint_gains_mm2()
     assert list(gains) == sorted(gains, key=gains.get, reverse=True)
     assert r.dominant_constraint is next(iter(gains))
-    # 道路12m・商業では道路斜線が最大の要因
-    assert r.dominant_constraint is C_.Constraint.ROAD_SLANT
     for constraint, total in gains.items():
         per_floor = sum(i.area_gain_mm2 for f in r.floors for i in f.impacts
                         if i.constraint is constraint)
         assert total == pytest.approx(per_floor)
+
+
+def test_the_bcr_outweighs_the_road_slant_on_this_site():
+    """道路12m・商業（20×30m・建蔽率80%）では建蔽率が最大の要因になる。
+
+    建蔽率は 551m2 の素地を 480m2 まで絞るので全9階に効く（1階あたり 41〜71m2）。
+    道路斜線が効くのは 5階以上の5層だけで、合計では建蔽率がわずかに上回る。
+    僅差なので、外壁後退の扱いのような小さな条件変更で順位は入れ替わりうる。
+    """
+    r = solve(VolumeInput.from_json_file(SAMPLES / "case_road12.json"))
+    gains = r.constraint_gains_mm2()
+    assert r.dominant_constraint is C_.Constraint.BCR
+    assert gains[C_.Constraint.BCR] / M2 == pytest.approx(570.1, abs=0.5)
+    assert gains[C_.Constraint.ROAD_SLANT] / M2 == pytest.approx(558.9, abs=0.5)
+    assert gains[C_.Constraint.NEIGHBOR_SLANT] / M2 == pytest.approx(133.6, abs=0.5)
+
+    # 建蔽率は全階に効き、道路斜線は上層だけに効く
+    assert all(C_.Constraint.BCR in f.constraints for f in r.floors)
+    assert [f.floor for f in r.floors
+            if C_.Constraint.ROAD_SLANT in f.constraints] == [5, 6, 7, 8, 9]
 
 
 def test_wider_road_reduces_the_road_slant_impact():

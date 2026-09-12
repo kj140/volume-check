@@ -532,7 +532,7 @@ def planned_slabs(result: VolumeResult, wall_setback_mm: float | None = None
     footprint = G.largest_inscribed_rectangle(region, result.building_angle_rad) or region
 
     def area_at(inset_mm: float) -> float:
-        shrunk = G.buildable_region(site.shape, zero, wall_mm + inset_mm)
+        shrunk = G.buildable_region(site.shape, zero, wall_mm, inset_mm)
         return G.area_mm2(shrunk.intersection(footprint))
 
     # 建蔽率いっぱいの板（法53条）
@@ -540,7 +540,7 @@ def planned_slabs(result: VolumeResult, wall_setback_mm: float | None = None
         area_at, result.max_building_area_mm2, math.sqrt(site.area_mm2) / 2.0 + 1.0
     )
     plate = G.buildable_region(
-        site.shape, zero, wall_mm + inset_mm
+        site.shape, zero, wall_mm, inset_mm
     ).intersection(footprint)
     max_area_mm2 = G.area_mm2(plate)
     min_area_mm2 = C.MIN_VIABLE_FLOOR_AREA_M2 * C.M2_TO_MM2

@@ -90,8 +90,8 @@ def test_best_is_at_least_as_good_as_the_baseline():
     assert study.best.total_gross_area_m2 >= study.baseline.total_gross_area_m2 - 0.01
 
 
-def test_fireproof_option_adds_cases_and_can_win():
-    """耐火建築物等も振ると、建蔽率が緩和されて有利な案が出る。"""
+def test_fireproof_option_adds_cases():
+    """耐火建築物等も振ると案の数が倍になる。"""
     plain = small_study()
     with_fire = studies.generate(
         payload(), angles_deg=SMALL_ANGLES, floor_heights_m=SMALL_HEIGHTS,
@@ -101,13 +101,49 @@ def test_fireproof_option_adds_cases_and_can_win():
     # 商業地域・建蔽率80%・防火地域なしなので、耐火にしても緩和はされない
     assert with_fire.best.total_gross_area_m2 >= plain.best.total_gross_area_m2 - 0.01
 
+
+def test_fireproof_enlarges_the_building_area_in_a_fire_zone():
+    """防火地域・指定建蔽率80%なら、耐火にすると建蔽率の制限がなくなる。
+
+    法53条6項1号。建築面積は 480m2（80%）から 551m2（外壁後退のみ）に広がる。
+    """
     body = payload()
     body["zoning"]["fire_zone"] = "防火地域"
-    fire_zone = studies.generate(
+    study = studies.generate(
         body, angles_deg=(0.0,), floor_heights_m=(4.2,), wall_setbacks_m=(0.5,),
         fireproof_options=(False, True),
     )
-    assert fire_zone.best.fireproof is True, "防火地域なら耐火にしたほうが有利になるはず"
+    by_spec = {c.fireproof: c for c in study.cases}
+    assert by_spec[True].building_area_m2 > by_spec[False].building_area_m2
+    assert by_spec[True].building_area_m2 == pytest.approx(551.0, abs=0.1)
+    assert by_spec[False].building_area_m2 == pytest.approx(480.0, abs=0.1)
+
+
+def test_a_larger_plate_can_leave_more_of_the_far_unused():
+    """建蔽率が緩和されても、延床が増えるとは限らない。
+
+    solve() は板の大きさを変えずに階を積み、容積率の上限に収まらない階は
+    まるごと切り捨てる。板が大きいほど1階ぶんの取りこぼしも大きくなるので、
+    耐火にして建築面積が増えても合計では負けることがある。
+
+      耐火なし 480m2 級 × 9階 = 3555.66m2（残り 44.34m2）
+      耐火あり 551m2 級 × 6階 = 3188.20m2（7階を足すと上限3600m2を超える）
+
+    延床順の表ではこの取りこぼしがそのまま順位に出る。板を絞って容積率を
+    使い切る案は skyfactor.planned_slabs が別途つくる。
+    """
+    body = payload()
+    body["zoning"]["fire_zone"] = "防火地域"
+    study = studies.generate(
+        body, angles_deg=(0.0,), floor_heights_m=(4.2,), wall_setbacks_m=(0.5,),
+        fireproof_options=(False, True),
+    )
+    by_spec = {c.fireproof: c for c in study.cases}
+    assert by_spec[True].floor_count < by_spec[False].floor_count
+    assert by_spec[True].total_gross_area_m2 < by_spec[False].total_gross_area_m2
+    for case in study.cases:
+        assert case.stop_reason == "容積率の上限に到達"
+        assert case.total_gross_area_m2 <= 3600.0 + 0.01
 
 
 def test_limit_caps_the_number_of_cases():
@@ -148,10 +184,14 @@ def test_parallel_is_best_on_a_rectangle_site():
 
 
 def test_rotation_can_win_on_a_polygon_site():
-    """非矩形の敷地では、振ったほうが取れることがある。"""
+    """非矩形の敷地では、振ったほうが取れることがある。
+
+    どの角度が最良かは敷地と法規条件しだいなので、角度そのものは固定しない。
+    """
     sweep = dict(studies.sweep_angles(payload("case_polygon"),
-                                      (-20.0, -10.0, 0.0, 10.0, 20.0)))
-    assert sweep[-20.0] > sweep[0.0]
+                                      (-25.0, -20.0, -10.0, 0.0, 10.0, 20.0)))
+    assert max(sweep.values()) > sweep[0.0]
+    assert max(sweep, key=sweep.get) != 0.0
 
 
 def test_suggested_angles_include_the_site_edges():

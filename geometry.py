@@ -10,10 +10,16 @@
 
   ・各道路境界線について  max(0, min(h / 勾配, 適用距離) - 道路幅員)
   ・各隣地境界線について  max(0, (h - 立ち上がり) / 勾配)
-  ・全境界について        外壁後退
 
 の距離だけ内側に削った領域になる。「境界線からの距離」なので、辺ごとに
 帯（その辺から距離 d 以内の領域）を差し引けばよい。
+
+外壁後退は「外壁面を境界からこれだけ離す」という計画側の指定なので、斜線と
+足し合わせるのではなく **大きいほうを採る**。斜線が 1.16m を要求していて外壁後退が
+0.5m なら、離すべき距離は 1.16m であって 1.66m ではない。建蔽率による絞り込み
+（inset）は領域全体を一律に内側へ寄せるものなので、こちらは最後に足す。
+
+  辺ごとの帯の幅 = max(外壁後退, その辺の斜線後退) + 建蔽率の絞り込み
 
 帯は端部を平らに切った（cap_style=flat）長方形で作る。閉じた多角形なら
 隣り合う辺の帯が頂点まわりを覆うため、凸の頂点ではこれで過不足がない。
@@ -199,18 +205,26 @@ def buildable_region(
     site: SiteShape,
     setback_by_edge_mm: list[float],
     wall_setback_mm: float = 0.0,
+    inset_mm: float = 0.0,
 ) -> Polygon | MultiPolygon:
     """各辺の後退量を差し引いた建築可能領域を返す。
 
     setback_by_edge_mm は辺ごとの斜線による後退量（外壁後退を含まない）。
+    辺ごとの帯の幅は max(外壁後退, 斜線後退) + inset。外壁後退と斜線は
+    どちらも「境界線からこれだけ離す」という条件なので、厳しいほうだけが効く。
+    inset は建蔽率による全周一律の絞り込みで、これは最後に足す。
+
     領域が消える場合は面積0のポリゴンを返す（例外にはしない）。
     """
     if len(setback_by_edge_mm) != len(site.edges):
         raise ValueError("後退量の数が敷地の辺の数と一致しません")
 
+    def band_mm(slant_mm: float) -> float:
+        return max(wall_setback_mm, slant_mm) + inset_mm
+
     bands: list[Polygon] = []
     for edge, slant in zip(site.edges, setback_by_edge_mm):
-        band = _edge_band(edge, wall_setback_mm + slant)
+        band = _edge_band(edge, band_mm(slant))
         if band is not None:
             bands.append(band)
 
@@ -218,7 +232,7 @@ def buildable_region(
     # 凸の頂点では隣の帯が覆うため不要（矩形が厳密に一致するのはこのため）。
     for vx, vy in _reflex_vertices(site.polygon):
         radius = max(
-            (wall_setback_mm + slant
+            (band_mm(slant)
              for edge, slant in zip(site.edges, setback_by_edge_mm)
              if math.dist(edge.start, (vx, vy)) < _LENGTH_EPS_MM
              or math.dist(edge.end, (vx, vy)) < _LENGTH_EPS_MM),

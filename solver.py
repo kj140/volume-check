@@ -122,7 +122,8 @@ def solve(inp: VolumeInput) -> VolumeResult:
     # --- 建蔽率による全階一律の絞り込み ----------------------------------------
     # 仕様の手順では最後に絞るが、絞ると容積対象床面積が減って階数条件が変わるため、
     # 1階の形状だけを先に試算して絞り込み量を確定させ、それを全階に適用する。
-    # 絞り込みは「全周を等しく内側に寄せる」＝外壁後退を増やすのと同じ扱いにする。
+    # 絞り込みは全周を等しく内側に寄せるもので、外壁後退・斜線とは別に最後に足す
+    # （外壁後退と斜線は互いに「大きいほう」だけが効く。geometry.py を参照）。
     def _area_at(inset_mm: float, top_mm: float = first_top_mm,
                  setbacks: list[float] | None = None) -> float:
         region = G.buildable_region(
@@ -130,7 +131,8 @@ def solve(inp: VolumeInput) -> VolumeResult:
             setbacks if setbacks is not None else _setbacks(
                 site, top_mm, road_gradient, applicable_distance_mm,
                 neighbor_start_mm, neighbor_gradient),
-            program.wall_setback_mm + inset_mm,
+            program.wall_setback_mm,
+            inset_mm,
         )
         return G.area_mm2(region.intersection(footprint))
 
@@ -160,7 +162,7 @@ def solve(inp: VolumeInput) -> VolumeResult:
         setbacks = _setbacks(site, top_mm, road_gradient, applicable_distance_mm,
                              neighbor_start_mm, neighbor_gradient)
         region = G.buildable_region(
-            site.shape, setbacks, program.wall_setback_mm + bcr_inset_mm
+            site.shape, setbacks, program.wall_setback_mm, bcr_inset_mm
         )
         shape = region.intersection(footprint)
         area_mm2 = G.area_mm2(shape)
@@ -454,6 +456,10 @@ def _record_applied_rules(r: VolumeResult) -> None:
     # 未考慮事項（推測で緩和を適用していないことを明示する）
     r.notes.append("容積率対象床面積は床面積と同一として算定（法52条3項〜6項の不算入は未考慮）")
     r.notes.append("法56条4項の後退距離による道路斜線の緩和は未考慮（安全側）")
+    r.notes.append(
+        "外壁後退と斜線による後退は、足し合わせず大きいほうを適用"
+        "（どちらも境界線からの離れを定めるものであるため）"
+    )
     if not r.bcr_relaxations:
         r.notes.append(
             "法53条3項の角地緩和・防火地域内耐火建築物の緩和は未適用"

@@ -65,18 +65,44 @@ def test_polygon_input_reproduces_the_rectangle_input_exactly():
 
 
 def test_rectangle_buildable_region_matches_the_simple_formula():
-    """矩形では「間口 - 隣地SB×2 - 外壁後退×2」という単純計算と厳密に一致する。"""
+    """矩形では単純計算と厳密に一致する。
+
+    辺ごとの控除量は max(外壁後退, 斜線後退)。外壁後退と斜線はどちらも
+    「境界線からの離れ」を定めるものなので、大きいほうだけが効く。
+    """
     site = G.rectangle_site(20000, 30000, 12000)
     sb_road, sb_nb, wall = 10600.0, 1160.0, 500.0
     setbacks = [sb_road if e.kind is G.EdgeKind.ROAD else sb_nb for e in site.edges]
     region = G.buildable_region(site, setbacks, wall)
 
-    expected_w = 20000 - 2 * sb_nb - 2 * wall
-    expected_d = 30000 - sb_road - sb_nb - 2 * wall
+    expected_w = 20000 - 2 * max(sb_nb, wall)
+    expected_d = 30000 - max(sb_road, wall) - max(sb_nb, wall)
     minx, miny, maxx, maxy = region.bounds
     assert maxx - minx == pytest.approx(expected_w, abs=1e-6)
     assert maxy - miny == pytest.approx(expected_d, abs=1e-6)
     assert region.area == pytest.approx(expected_w * expected_d, abs=1e-6)
+
+
+def test_the_wall_setback_only_applies_where_the_slant_is_smaller():
+    """斜線が外壁後退より小さい辺では外壁後退が、大きい辺では斜線が効く。"""
+    site = G.rectangle_site(20000, 30000, 12000)
+    wall = 500.0
+    # 道路側だけ斜線 3m、隣地側は斜線なし
+    region = G.buildable_region(site, [3000.0, 0.0, 0.0, 0.0], wall)
+    minx, miny, maxx, maxy = region.bounds
+    assert maxx - minx == pytest.approx(20000 - 2 * wall, abs=1e-6)
+    assert maxy - miny == pytest.approx(30000 - 3000.0 - wall, abs=1e-6)
+
+
+def test_the_bcr_inset_is_added_on_top_of_the_larger_of_the_two():
+    """建蔽率の絞り込みは全周一律なので、max を取ったうえで足される。"""
+    site = G.rectangle_site(20000, 30000, 12000)
+    wall, inset = 500.0, 800.0
+    region = G.buildable_region(site, [3000.0, 0.0, 0.0, 0.0], wall, inset)
+    minx, miny, maxx, maxy = region.bounds
+    assert maxx - minx == pytest.approx(20000 - 2 * (wall + inset), abs=1e-6)
+    assert maxy - miny == pytest.approx(
+        30000 - (3000.0 + inset) - (wall + inset), abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -209,13 +235,14 @@ def test_building_angle_is_applied():
 def test_rotating_the_building_changes_the_result_on_a_polygon_site():
     base = json.loads((SAMPLES / "case_polygon.json").read_text(encoding="utf-8"))
     areas = {}
-    for angle in (-20, 0, 20):
+    for angle in (-25, -20, -10, 0, 10, 20):
         d = copy.deepcopy(base)
         d["program"]["building_angle"] = angle
         areas[angle] = solve(VolumeInput.from_dict(d)).total_gross_area_mm2
-    assert len(set(areas.values())) == 3, "振り角を変えても結果が変わっていない"
-    # この敷地では道路平行より振ったほうが取れる
-    assert areas[-20] > areas[0]
+    assert len(set(areas.values())) == len(areas), "振り角を変えても結果が変わっていない"
+    # この敷地では道路平行より取れる振り角がある（どの角度が最良かは条件次第）
+    assert max(areas.values()) > areas[0]
+    assert max(areas, key=areas.get) != 0
 
 
 def test_rotating_on_a_rectangle_site_never_beats_the_parallel_placement():
