@@ -640,17 +640,28 @@ $("#btn-dxf").addEventListener("click", async () => {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(lastPayload),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(errorMessage(err, res.status));
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // DXF は "  0" + 改行 + "SECTION" で始まる。そうでなければ保存せずに知らせる
+    const head = new TextDecoder().decode(bytes.slice(0, 16));
+    if (!bytes.length || !/^\s*0\r?\nSECTION/.test(head)) {
+      throw new Error(`サーバーから DXF ではない応答が返りました（${bytes.length} bytes）`);
+    }
+    const blob = new Blob([bytes], { type: "application/dxf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "volume_check.dxf";
     document.body.appendChild(a);
     a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    $("#status").textContent = "DXF をダウンロードしました。";
+    // click の直後に revoke すると Chrome で空ファイルになることがある。
+    // ダウンロードが始まるのを待ってから片づける。
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 30_000);
+    $("#status").textContent =
+      `DXF をダウンロードしました（${(bytes.length / 1024).toFixed(0)} KB）。`;
   } catch (e) {
     showError(`DXFの生成に失敗しました: ${e.message || e}`);
     $("#status").textContent = "";
