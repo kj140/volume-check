@@ -26,6 +26,7 @@ import math
 from pathlib import Path
 
 import ezdxf
+from ezdxf import bbox
 from ezdxf.enums import TextEntityAlignment as TA
 
 import constants as C
@@ -111,7 +112,34 @@ def draw(result: VolumeResult, path: str | Path) -> None:
     _text(msp, "ボリュームチェック図", (0.0, body_y + body_h + GAP * 0.5),
           H_SHEET_TITLE, "A-TEXT")
 
+    _fit_initial_view(doc, msp)
     doc.saveas(path)
+
+
+def _fit_initial_view(doc, msp) -> None:
+    """開いたときに図面全体が見えるように、図面範囲と初期ビューを書き込む。
+
+    図形は mm 実寸で描いているので幅 20 万 mm 前後になるが、ezdxf の既定では
+    $EXTMIN/$EXTMAX が未設定（1e20 の番兵値）のまま、$LIMMAX は A3 の紙寸
+    (420, 297) になっている。CAD や DXF ビューアはこれらを初期表示の範囲に使うため、
+    そのままだと巨大な図面の左下の空白だけが表示され「中身が無い」ように見える。
+    """
+    ext = bbox.extents(msp, fast=True)
+    if not ext.has_data:
+        return
+    (x0, y0, _), (x1, y1, _) = ext.extmin, ext.extmax
+    margin = max(x1 - x0, y1 - y0) * 0.05
+    # ezdxf は保存時に $EXTMIN/$EXTMAX/$LIMMIN/$LIMMAX をモデル空間レイアウトの
+    # 値で上書きするので、ヘッダではなくレイアウト側に書く。
+    msp.dxf.extmin = (x0, y0, 0.0)
+    msp.dxf.extmax = (x1, y1, 0.0)
+    msp.dxf.limmin = (x0 - margin, y0 - margin)
+    msp.dxf.limmax = (x1 + margin, y1 + margin)
+    # モデル空間の初期ビュー（*Active ビューポート）を図面全体に合わせる
+    doc.set_modelspace_vport(
+        height=(y1 - y0) + 2 * margin,
+        center=((x0 + x1) / 2.0, (y0 + y1) / 2.0),
+    )
 
 
 # ---------------------------------------------------------------------------

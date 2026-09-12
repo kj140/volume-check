@@ -313,3 +313,43 @@ def test_draw_handles_every_district(district, far, bcr, tmp_path):
     doc = ezdxf.readfile(path)
     assert not Auditor(doc).run()
     assert len(doc.modelspace().query("LWPOLYLINE[layer=='A-SLNT']")) >= 1
+
+
+# ---------------------------------------------------------------------------
+# 開いたときに図面全体が見えること
+# ---------------------------------------------------------------------------
+
+
+def test_the_drawing_extents_and_initial_view_cover_every_entity(tmp_path):
+    """$EXTMIN/$EXTMAX・$LIMMIN/$LIMMAX・*Active ビューポートが図形全体を含む。
+
+    図形は mm 実寸で幅 10 万 mm を超えるのに、既定のままだと $LIMMAX が A3 の紙寸
+    (420, 297) で、CAD ビューアで開くと左下の空白だけが表示され「中身が無い」ように
+    見えていた。
+    """
+    from ezdxf import bbox
+    from ezdxf.math import Vec3
+
+    for name in ("case_road12", "case_polygon"):
+        result = solve(VolumeInput.from_json_file(SAMPLES / f"{name}.json"))
+        path = tmp_path / f"{name}.dxf"
+        draw(result, path)
+        doc = ezdxf.readfile(path)
+        msp = doc.modelspace()
+        ext = bbox.extents(msp)
+        assert ext.has_data
+        extmin, extmax = Vec3(doc.header["$EXTMIN"]), Vec3(doc.header["$EXTMAX"])
+        assert extmin.isclose(ext.extmin, abs_tol=1.0), name
+        assert extmax.isclose(ext.extmax, abs_tol=1.0), name
+
+        limmin, limmax = doc.header["$LIMMIN"], doc.header["$LIMMAX"]
+        assert limmin[0] <= ext.extmin.x and limmin[1] <= ext.extmin.y, name
+        assert limmax[0] >= ext.extmax.x and limmax[1] >= ext.extmax.y, name
+        # 紙寸の既定値 (420, 297) のままではない
+        assert limmax[0] > 10_000 and limmax[1] > 10_000, name
+
+        vport = doc.viewports.get("*Active")[0]
+        cx, cy = vport.dxf.center.x, vport.dxf.center.y
+        assert abs(cx - (ext.extmin.x + ext.extmax.x) / 2) < 1.0, name
+        assert abs(cy - (ext.extmin.y + ext.extmax.y) / 2) < 1.0, name
+        assert vport.dxf.height >= ext.extmax.y - ext.extmin.y, name
