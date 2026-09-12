@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import sys
@@ -41,7 +42,7 @@ import studies                                             # noqa: E402
 from solver import solve                                   # noqa: E402
 
 from . import zoning                                       # noqa: E402
-from .geo import frontage_depth_m                          # noqa: E402
+from .geo import frontage_depth_m, local_xy_m, polygon_area_m2  # noqa: E402
 from .svg_plan import (                                     # noqa: E402
     render_floor_plans,
     render_site_plan,
@@ -81,7 +82,8 @@ class SiteIn(BaseModel):
     frontage: float = Field(default=20.0, gt=0, description="道路に接する辺の長さ[m]")
     depth: float = Field(default=30.0, gt=0, description="道路と直交する辺の長さ[m]")
     road_width: float = Field(default=6.0, gt=0, description="前面道路の幅員[m]")
-    road_side: Literal["north", "east", "south", "west"]
+    road_side: Literal["north", "east", "south", "west"] = Field(
+        default="south", description="矩形指定のときの前面道路の方位。多角形では north_angle を使う")
     corner_lot: bool = Field(
         default=False, description="角地等の指定を受けているか（法53条3項2号）"
     )
@@ -169,6 +171,22 @@ class StudyIn(BaseModel):
     @classmethod
     def _check_setbacks(cls, v: list[float] | None) -> list[float] | None:
         return _within(v, 0.0, 50.0, "外壁後退は 0〜50m で指定してください")
+
+
+class LatLon(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class PolygonIn(BaseModel):
+    """地図上でなぞった敷地の頂点列と、道路に接する辺の番号。
+
+    辺 i は頂点 i → i+1（最後は先頭に戻る）。
+    """
+
+    points: list[LatLon] = Field(min_length=3, max_length=50)
+    road_edges: list[int] = Field(default_factory=lambda: [0])
+    road_width: float = Field(default=6.0, gt=0, description="道路辺に共通の幅員[m]")
 
 
 class RectIn(BaseModel):
@@ -347,6 +365,54 @@ def rect_to_size(rect: RectIn) -> dict:
         "area_m2": round(frontage * depth, 2),
         "center": {"lat": (rect.south + rect.north) / 2,
                    "lon": (rect.west + rect.east) / 2},
+    }
+
+
+@app.post("/api/polygon")
+def polygon_to_local(poly: PolygonIn) -> dict:
+    """地図上の頂点列を、東 +x・北 +y のローカル座標[m]に写す。
+
+    返す boundary / edges はそのまま /api/solve の site に渡せる形。
+    north_angle は +y が北なので常に 90 度。
+    """
+    n = len(poly.points)
+    bad = [i for i in poly.road_edges if i < 0 or i >= n]
+    if bad:
+        raise HTTPException(status_code=422,
+                            detail=f"道路辺の番号が範囲外です: {bad}（0〜{n - 1}）")
+    if not poly.road_edges:
+        raise HTTPException(status_code=422, detail="道路に接する辺を1つ以上選んでください")
+
+    xy = local_xy_m([(q.lat, q.lon) for q in poly.points])
+    lengths = [
+        math.dist(xy[i], xy[(i + 1) % n]) for i in range(n)
+    ]
+    roads = set(poly.road_edges)
+    edges = [
+        {"kind": "road", "width": poly.road_width} if i in roads else {"kind": "neighbor"}
+        for i in range(n)
+    ]
+    site = {"boundary": [[round(x, 3), round(y, 3)] for x, y in xy],
+            "edges": edges, "north_angle": 90.0}
+    # 形として成立するか（自己交差など）はここで弾いて、理由を返す
+    try:
+        shape = VolumeInput.from_dict({
+            "site": site,
+            "zoning": {"use_district": "商業地域", "bcr": 0.8, "far_designated": 4.0},
+            "program": {"floor_height": 4.0, "gf_height": 4.0, "wall_setback": 0.0,
+                        "core_ratio": 0.0, "max_floors": 1},
+        }).site
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
+
+    return {
+        "site": site,
+        "area_m2": round(polygon_area_m2(xy), 2),
+        "edge_lengths_m": [round(v, 2) for v in lengths],
+        "road_frontage_m": round(sum(lengths[i] for i in roads), 2),
+        "is_rectangle": shape.is_rectangle,
+        "center": {"lat": sum(q.lat for q in poly.points) / n,
+                   "lon": sum(q.lon for q in poly.points) / n},
     }
 
 

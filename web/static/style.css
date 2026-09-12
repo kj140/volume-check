@@ -217,3 +217,8 @@ button.link { border: none; background: none; padding: 0; font-size: 12px;
 #sky tr.edge th span { float: right; font-weight: 600; }
 #sky tr.edge.ok th span { color: #16a34a; }
 #sky tr.edge.ng th span { color: #dc2626; }
+
+/* --- 多角形の敷地 ---------------------------------------------------------- */
+#site-area-hint .edge { display: inline-block; margin-right: 8px; white-space: nowrap; }
+#site-area-hint .edge.road { color: #dc2626; font-weight: 600; }
+.leaflet-container.poly-drawing { cursor: crosshair; }

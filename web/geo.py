@@ -108,3 +108,32 @@ def point_in_geometry(lon: float, lat: float, geometry: dict) -> bool:
             if not any(point_in_ring(lon, lat, hole) for hole in rings[1:]):
                 return True
     return False
+
+
+def local_xy_m(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """緯度経度の列を、東を +x・北を +y とするローカル座標[m]に写す。
+
+    原点は頂点の重心。敷地は数百m以内なので、重心の緯度で東西方向の縮尺を
+    固定した等距離近似で十分（誤差は mm 未満）。
+    points は (lat, lon) の列。
+    """
+    if not points:
+        return []
+    lat0 = sum(p[0] for p in points) / len(points)
+    lon0 = sum(p[1] for p in points) / len(points)
+    out: list[tuple[float, float]] = []
+    for lat, lon in points:
+        x = parallel_distance_m(lat0, lon0, lon) * (1 if lon >= lon0 else -1)
+        y = meridian_distance_m(lat0, lat) * (1 if lat >= lat0 else -1)
+        out.append((x, y))
+    return out
+
+
+def polygon_area_m2(xy: list[tuple[float, float]]) -> float:
+    """多角形の面積[m2]（靴紐公式）。頂点の向きによらず正の値。"""
+    n = len(xy)
+    if n < 3:
+        return 0.0
+    twice = sum(xy[i][0] * xy[(i + 1) % n][1] - xy[(i + 1) % n][0] * xy[i][1]
+                for i in range(n))
+    return abs(twice) / 2.0

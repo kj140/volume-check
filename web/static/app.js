@@ -52,18 +52,25 @@ let ghost = null;       // ドラッグ中のプレビュー
 function setDrawing(on) {
   drawing = on;
   $("#btn-draw").classList.toggle("active", on);
-  $("#btn-draw").textContent = on ? "描画中（ドラッグ／Escで中止）" : "敷地の矩形を描く";
+  $("#btn-draw").textContent = on ? "描画中（ドラッグ／Escで中止）" : "矩形で描く";
   map.dragging[on ? "disable" : "enable"]();
   map.getContainer().style.cursor = on ? "crosshair" : "";
-  $("#map-hint").textContent = on
-    ? "地図上でドラッグして敷地の矩形を描いてください。"
-    : "矩形の辺は南北・東西を向きます。道路の方位で間口/奥行が決まります。";
+  if (on || !sitePolygon) {
+    $("#map-hint").textContent = on
+      ? "地図上でドラッグして敷地の矩形を描いてください（辺は南北・東西を向きます）。"
+      : "敷地の角を順にクリック。道路側の辺から始めてください。";
+  }
 }
 
-$("#btn-draw").addEventListener("click", () => setDrawing(!drawing));
+$("#btn-draw").addEventListener("click", () => {
+  if (!drawing) clearPolygon();
+  setDrawing(!drawing);
+});
 $("#btn-clear").addEventListener("click", () => {
   if (rectLayer) { map.removeLayer(rectLayer); rectLayer = null; }
+  clearPolygon();
   setDrawing(false);
+  $("#site-area-hint").textContent = "";
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && drawing) {
@@ -101,6 +108,7 @@ map.on("mouseup", (e) => {
 });
 
 function applyRect(bounds) {
+  clearPolygon();
   if (rectLayer) map.removeLayer(rectLayer);
   rectLayer = L.rectangle(bounds, {
     color: "#1d4ed8", weight: 2, fillOpacity: 0.1,
@@ -129,6 +137,211 @@ async function updateFromRect(lookupZoning) {
   if (lookupZoning) await lookupZoningAt(data.center.lat, data.center.lon);
   scheduleSolve();
 }
+
+// ---------------------------------------------------------------------------
+// 多角形の敷地（頂点をなぞる）
+// ---------------------------------------------------------------------------
+// 実際の敷地は南北・東西に揃っていないことがほとんどなので、角を順にクリックして
+// 多角形で与える。座標変換（緯度経度 → 東+x・北+y のローカル座標[m]）はサーバで行い、
+// 返ってきた boundary/edges をそのまま /api/solve の site に渡す。
+let polyMode = false;
+let polyPoints = [];          // 描画中の頂点（LatLng）
+let polyPreview = null;       // 描画中の折れ線
+let polyVertexMarkers = [];   // 描画中の頂点マーカー
+let polyLayer = null;         // 確定した多角形
+let polyEdgeMarkers = [];     // 辺の中点（クリックで道路/隣地を切替）
+let polyRoadEdges = new Set();
+let sitePolygon = null;       // /api/polygon の応答。null なら矩形入力
+
+const POLY_STYLE = { color: "#1d4ed8", weight: 2, fillOpacity: 0.1 };
+const CLOSE_TOLERANCE_PX = 10;
+
+function setPolyMode(on) {
+  polyMode = on;
+  $("#btn-poly").classList.toggle("active", on);
+  $("#btn-poly").textContent = on ? "描画中（Escで中止）" : "敷地の頂点をなぞる";
+  $("#btn-poly-done").hidden = !on;
+  map.getContainer().classList.toggle("poly-drawing", on);
+  map.doubleClickZoom[on ? "disable" : "enable"]();
+  if (on) {
+    setDrawing(false);
+    $("#map-hint").textContent =
+      "敷地の角を順にクリック。道路側の辺から始めると分かりやすいです。"
+      + " 最初の点をクリック／ダブルクリック／Enter で閉じます。Backspace で1つ戻る。";
+  } else if (!sitePolygon) {
+    $("#map-hint").textContent = "敷地の角を順にクリック。道路側の辺から始めてください。";
+  }
+}
+
+function discardPolyDraft() {
+  polyPoints = [];
+  if (polyPreview) { map.removeLayer(polyPreview); polyPreview = null; }
+  polyVertexMarkers.forEach((m) => map.removeLayer(m));
+  polyVertexMarkers = [];
+}
+
+function clearPolygon() {
+  discardPolyDraft();
+  if (polyLayer) { map.removeLayer(polyLayer); polyLayer = null; }
+  polyEdgeMarkers.forEach((m) => map.removeLayer(m));
+  polyEdgeMarkers = [];
+  polyRoadEdges = new Set();
+  sitePolygon = null;
+  setPolyMode(false);
+  setRectInputsEnabled(true);
+}
+
+/** 多角形入力のあいだは間口・奥行・道路の方位は使わないので触れなくする。 */
+function setRectInputsEnabled(enabled) {
+  for (const name of ["frontage", "depth", "road_side"]) {
+    form[name].disabled = !enabled;
+  }
+}
+
+function redrawPolyPreview(cursor) {
+  const pts = cursor ? [...polyPoints, cursor] : polyPoints;
+  if (!polyPreview) {
+    polyPreview = L.polyline(pts, { ...POLY_STYLE, dashArray: "5 4" }).addTo(map);
+  } else {
+    polyPreview.setLatLngs(pts);
+  }
+}
+
+function addPolyVertex(latlng) {
+  polyPoints.push(latlng);
+  polyVertexMarkers.push(
+    L.circleMarker(latlng, { radius: 5, color: "#1d4ed8", fillColor: "#fff",
+                             fillOpacity: 1, weight: 2 }).addTo(map)
+  );
+  redrawPolyPreview(null);
+}
+
+function nearFirstVertex(latlng) {
+  if (polyPoints.length < 3) return false;
+  const a = map.latLngToContainerPoint(polyPoints[0]);
+  const b = map.latLngToContainerPoint(latlng);
+  return a.distanceTo(b) <= CLOSE_TOLERANCE_PX;
+}
+
+function finishPolygon() {
+  // ダブルクリックは click が2回入るので、直前とほぼ同じ点は落とす
+  const pts = [];
+  for (const q of polyPoints) {
+    const last = pts[pts.length - 1];
+    if (!last || map.latLngToContainerPoint(last).distanceTo(
+        map.latLngToContainerPoint(q)) > 2) pts.push(q);
+  }
+  if (pts.length < 3) {
+    $("#map-hint").textContent = "頂点は3つ以上必要です。";
+    return;
+  }
+  discardPolyDraft();
+  setPolyMode(false);
+  if (rectLayer) { map.removeLayer(rectLayer); rectLayer = null; }
+  if (polyLayer) map.removeLayer(polyLayer);
+  polyLayer = L.polygon(pts, POLY_STYLE).addTo(map);
+  polyRoadEdges = new Set([0]);          // 最初に描いた辺を道路とみなす
+  drawEdgeMarkers();
+  setRectInputsEnabled(false);
+  updateFromPolygon(true);
+}
+
+/** 各辺の中点に丸を置く。赤＝道路、灰＝隣地。クリックで切り替える。 */
+function drawEdgeMarkers() {
+  polyEdgeMarkers.forEach((m) => map.removeLayer(m));
+  polyEdgeMarkers = [];
+  const pts = polyLayer.getLatLngs()[0];
+  pts.forEach((a, i) => {
+    const b = pts[(i + 1) % pts.length];
+    const mid = L.latLng((a.lat + b.lat) / 2, (a.lng + b.lng) / 2);
+    const road = polyRoadEdges.has(i);
+    const m = L.circleMarker(mid, {
+      radius: 7, weight: 2, fillOpacity: 1,
+      color: road ? "#dc2626" : "#64748b", fillColor: road ? "#fecaca" : "#e2e8f0",
+    }).addTo(map);
+    m.bindTooltip(road ? `辺${i + 1}: 道路（クリックで隣地に）` : `辺${i + 1}: 隣地（クリックで道路に）`,
+                  { direction: "top" });
+    m.on("click", (e) => {
+      L.DomEvent.stopPropagation(e);
+      if (polyRoadEdges.has(i)) {
+        if (polyRoadEdges.size === 1) {
+          $("#map-hint").textContent = "道路に接する辺が1つは必要です。";
+          return;
+        }
+        polyRoadEdges.delete(i);
+      } else {
+        polyRoadEdges.add(i);
+      }
+      drawEdgeMarkers();
+      updateFromPolygon(false);
+    });
+    polyEdgeMarkers.push(m);
+  });
+}
+
+/** 多角形をローカル座標に変換してもらい、敷地条件を表示する。 */
+async function updateFromPolygon(lookupZoning) {
+  if (!polyLayer) return;
+  const pts = polyLayer.getLatLngs()[0].map((q) => ({ lat: q.lat, lon: q.lng }));
+  const res = await fetch("/api/polygon", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      points: pts, road_edges: [...polyRoadEdges],
+      road_width: parseFloat(form.road_width.value) || 6,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    $("#map-hint").textContent = `敷地の形を読めませんでした: ${errorMessage(err, res.status)}`;
+    clearPolygon();
+    return;
+  }
+  sitePolygon = await res.json();
+  const edges = sitePolygon.edge_lengths_m.map((len, i) => {
+    const road = polyRoadEdges.has(i);
+    return `<span class="edge ${road ? "road" : ""}">辺${i + 1} ${len.toFixed(1)}m ${road ? "道路" : "隣地"}</span>`;
+  }).join("");
+  $("#site-area-hint").innerHTML =
+    `地図から取得: 敷地面積 <b>${sitePolygon.area_m2.toLocaleString()} m2</b>・`
+    + `接道 ${sitePolygon.road_frontage_m.toFixed(1)}m<br>${edges}`;
+  $("#map-hint").textContent =
+    "辺の中点の丸をクリックすると道路／隣地を切り替えられます。幅員は道路辺に共通です。";
+  if (lookupZoning) await lookupZoningAt(sitePolygon.center.lat, sitePolygon.center.lon);
+  scheduleSolve();
+}
+
+$("#btn-poly").addEventListener("click", () => {
+  if (polyMode) { discardPolyDraft(); setPolyMode(false); return; }
+  clearPolygon();
+  setPolyMode(true);
+});
+$("#btn-poly-done").addEventListener("click", finishPolygon);
+
+map.on("click", (e) => {
+  if (!polyMode) return;
+  if (nearFirstVertex(e.latlng)) { finishPolygon(); return; }
+  addPolyVertex(e.latlng);
+});
+map.on("dblclick", (e) => {
+  if (!polyMode) return;
+  L.DomEvent.stop(e);
+  finishPolygon();
+});
+map.on("mousemove", (e) => {
+  if (polyMode && polyPoints.length) redrawPolyPreview(e.latlng);
+});
+document.addEventListener("keydown", (e) => {
+  if (!polyMode) return;
+  if (e.key === "Escape") { discardPolyDraft(); setPolyMode(false); }
+  else if (e.key === "Enter") { e.preventDefault(); finishPolygon(); }
+  else if (e.key === "Backspace" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    polyPoints.pop();
+    const m = polyVertexMarkers.pop();
+    if (m) map.removeLayer(m);
+    redrawPolyPreview(null);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // 住所検索（国土地理院 住所検索API をバックエンド経由で）
@@ -220,12 +433,22 @@ function updateBcrHint(summary) {
 function payload() {
   const num = (name) => parseFloat(form[name].value);
   const limit = form.height_limit_absolute.value.trim();
+  const site = sitePolygon
+    ? {
+        boundary: sitePolygon.site.boundary,
+        // 道路幅員はフォームの値を都度反映する（道路辺に共通）
+        edges: sitePolygon.site.boundary.map((_, i) =>
+          polyRoadEdges.has(i) ? { kind: "road", width: num("road_width") } : { kind: "neighbor" }),
+        north_angle: sitePolygon.site.north_angle,
+        corner_lot: form.corner_lot.checked,
+      }
+    : {
+        frontage: num("frontage"), depth: num("depth"),
+        road_width: num("road_width"), road_side: form.road_side.value,
+        corner_lot: form.corner_lot.checked,
+      };
   return {
-    site: {
-      frontage: num("frontage"), depth: num("depth"),
-      road_width: num("road_width"), road_side: form.road_side.value,
-      corner_lot: form.corner_lot.checked,
-    },
+    site,
     zoning: {
       use_district: form.use_district.value,
       bcr: num("bcr") / 100,
