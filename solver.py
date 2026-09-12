@@ -83,6 +83,9 @@ def solve(inp: VolumeInput) -> VolumeResult:
     neighbor = C.neighbor_slant(district)
     neighbor_start_mm = None if neighbor is None else neighbor[0] * C.M_TO_MM
     neighbor_gradient = None if neighbor is None else neighbor[1]
+    north = C.north_slant(district, zoning.shadow_regulation)
+    north_start_mm = None if north is None else north[0] * C.M_TO_MM
+    north_gradient = None if north is None else north[1]
 
     result = VolumeResult(
         input=inp,
@@ -97,6 +100,8 @@ def solve(inp: VolumeInput) -> VolumeResult:
         road_slant_applicable_distance_mm=applicable_distance_mm,
         neighbor_slant_start_mm=neighbor_start_mm,
         neighbor_slant_gradient=neighbor_gradient,
+        north_slant_start_mm=north_start_mm,
+        north_slant_gradient=north_gradient,
         height_limit_applied_mm=height_limit_mm,
         bcr_effective=bcr_effective,
         bcr_relaxations=bcr_relaxations,
@@ -110,12 +115,26 @@ def solve(inp: VolumeInput) -> VolumeResult:
              else road_angle + program.building_angle_rad)
     result.building_angle_rad = angle
 
+    def _north(top_mm: float) -> float:
+        """その天端で必要な真北方向の距離（法56条1項3号）。適用がなければ 0。"""
+        return north_setback(top_mm, north_start_mm, north_gradient)
+
+    def _region(top_mm: float, inset_mm: float,
+                setbacks: list[float] | None = None):
+        """天端 top_mm における建築可能領域。北側斜線までここで適用する。"""
+        region = G.buildable_region(
+            site.shape,
+            setbacks if setbacks is not None else _setbacks(
+                site, top_mm, road_gradient, applicable_distance_mm,
+                neighbor_start_mm, neighbor_gradient),
+            program.wall_setback_mm,
+            inset_mm,
+        )
+        return G.north_slant_region(region, site.shape.polygon,
+                                    site.north_angle_rad, _north(top_mm))
+
     first_top_mm = program.height_of_floor_mm(1)
-    region_1f = G.buildable_region(
-        site.shape, _setbacks(site, first_top_mm, road_gradient,
-                              applicable_distance_mm, neighbor_start_mm, neighbor_gradient),
-        program.wall_setback_mm,
-    )
+    region_1f = _region(first_top_mm, 0.0)
     footprint = G.largest_inscribed_rectangle(region_1f, angle) or region_1f
     result.footprint = G.outline(footprint)
 
@@ -126,14 +145,13 @@ def solve(inp: VolumeInput) -> VolumeResult:
     # （外壁後退と斜線は互いに「大きいほう」だけが効く。geometry.py を参照）。
     def _area_at(inset_mm: float, top_mm: float = first_top_mm,
                  setbacks: list[float] | None = None) -> float:
+        return G.area_mm2(_region(top_mm, inset_mm, setbacks).intersection(footprint))
+
+    def _area_no_north(inset_mm: float, top_mm: float,
+                       setbacks: list[float]) -> float:
+        """北側斜線だけを外したときの床面積。要因の切り分けに使う。"""
         region = G.buildable_region(
-            site.shape,
-            setbacks if setbacks is not None else _setbacks(
-                site, top_mm, road_gradient, applicable_distance_mm,
-                neighbor_start_mm, neighbor_gradient),
-            program.wall_setback_mm,
-            inset_mm,
-        )
+            site.shape, setbacks, program.wall_setback_mm, inset_mm)
         return G.area_mm2(region.intersection(footprint))
 
     bcr_inset_mm = G.inset_for_area(
@@ -161,10 +179,7 @@ def solve(inp: VolumeInput) -> VolumeResult:
 
         setbacks = _setbacks(site, top_mm, road_gradient, applicable_distance_mm,
                              neighbor_start_mm, neighbor_gradient)
-        region = G.buildable_region(
-            site.shape, setbacks, program.wall_setback_mm, bcr_inset_mm
-        )
-        shape = region.intersection(footprint)
+        shape = _region(top_mm, bcr_inset_mm, setbacks).intersection(footprint)
         area_mm2 = G.area_mm2(shape)
 
         if area_mm2 <= _AREA_EPS_MM2:
@@ -195,7 +210,11 @@ def solve(inp: VolumeInput) -> VolumeResult:
                 floor=floor, level_mm=level_mm, story_mm=story_mm,
                 site=site, shape=shape, setbacks=setbacks,
                 impacts=_impacts(site, program, footprint, setbacks, bcr_inset_mm,
-                                 area_mm2, _area_at, top_mm),
+                                 area_mm2, _area_at, top_mm,
+                                 north_mm=_north(top_mm),
+                                 without_north=_area_no_north(bcr_inset_mm, top_mm,
+                                                              setbacks)),
+                north_mm=_north(top_mm),
                 road_capped=_road_capped(site, top_mm, road_gradient,
                                          applicable_distance_mm),
                 unconstrained_area_mm2=_area_at(
@@ -243,6 +262,17 @@ def neighbor_setback(top_mm: float, start_mm: float | None,
     return max(0.0, (top_mm - start_mm) / gradient)
 
 
+def north_setback(top_mm: float, start_mm: float | None,
+                  gradient: float | None) -> float:
+    """北側斜線で必要な真北方向の距離（法56条1項3号）。適用がなければ 0。
+
+    他の2つと違い、敷地の辺ではなく真北方向に測る距離である点に注意。
+    """
+    if start_mm is None or gradient is None:
+        return 0.0
+    return max(0.0, (top_mm - start_mm) / gradient)
+
+
 def _setbacks(site, top_mm: float, road_gradient: float,
               applicable_distance_mm: float, neighbor_start_mm: float | None,
               neighbor_gradient: float | None) -> list[float]:
@@ -270,7 +300,8 @@ def _road_capped(site, top_mm: float, gradient: float,
 
 
 def _impacts(site, program, footprint, setbacks: list[float], inset_mm: float,
-             actual_area_mm2: float, area_at, top_mm: float
+             actual_area_mm2: float, area_at, top_mm: float,
+             north_mm: float = 0.0, without_north: float | None = None
              ) -> tuple[ConstraintImpact, ...]:
     """その階を削っている規定ごとの限界寄与を求める。
 
@@ -295,6 +326,8 @@ def _impacts(site, program, footprint, setbacks: list[float], inset_mm: float,
         (Constraint.NEIGHBOR_SLANT, nb_sb,
          area_at(inset_mm, top_mm, without_nb)),
         (Constraint.BCR, inset_mm, area_at(0.0, top_mm, setbacks)),
+        (Constraint.NORTH_SLANT, north_mm,
+         actual_area_mm2 if without_north is None else without_north),
     )
     impacts = [
         ConstraintImpact(constraint=c, area_gain_mm2=relaxed - actual_area_mm2,
@@ -317,6 +350,7 @@ def _make_floor(
     impacts: tuple[ConstraintImpact, ...],
     road_capped: bool,
     unconstrained_area_mm2: float,
+    north_mm: float = 0.0,
 ) -> FloorResult:
     """1 階分の結果を組み立てる。
 
@@ -346,6 +380,7 @@ def _make_floor(
         setback_road_mm=road_sb,
         setback_neighbor_mm=nb_sb,
         governing=_governing(road_sb, nb_sb, impacts, road_capped),
+        setback_north_mm=north_mm,
         impacts=impacts,
         road_slant_capped=road_capped,
         unconstrained_area_mm2=unconstrained_area_mm2,
@@ -363,6 +398,8 @@ def _governing(sb_road: float, sb_neighbor: float,
         parts.append("道路斜線(適用距離で頭打ち)" if road_capped else "道路斜線")
     if Constraint.NEIGHBOR_SLANT in listed:
         parts.append("隣地斜線")
+    if Constraint.NORTH_SLANT in listed:
+        parts.append("北側斜線")
     if Constraint.BCR in listed:
         parts.append("建蔽率")
     if not parts:
@@ -435,6 +472,26 @@ def _record_applied_rules(r: VolumeResult) -> None:
                 "法56条1項2号",
             )
         )
+    if r.north_slant_start_mm is None:
+        replaced = (district in C.DISTRICTS_WHERE_SHADOW_RULE_REPLACES_NORTH_SLANT
+                    and z.shadow_regulation)
+        r.applied_rules.append(
+            AppliedRule(
+                "北側斜線",
+                "適用なし（日影規制の対象区域のため）" if replaced else "適用なし",
+                "法56条1項3号",
+            )
+        )
+    else:
+        r.applied_rules.append(
+            AppliedRule(
+                "北側斜線",
+                f"立ち上がり {r.north_slant_start_mm / C.M_TO_MM:.0f}m"
+                f" / 勾配 {r.north_slant_gradient}（真北方向に測る）",
+                "法56条1項3号",
+            )
+        )
+
     if r.height_limit_applied_mm is not None:
         defaulted = z.height_limit_absolute_mm is None
         r.applied_rules.append(
@@ -466,6 +523,14 @@ def _record_applied_rules(r: VolumeResult) -> None:
             "（該当する場合は入力で指定すると反映されます）"
         )
     r.notes.append("法52条9項の特定道路による容積率緩和は未考慮（安全側）")
+    if z.shadow_regulation:
+        r.notes.append(
+            "【要注意】日影規制（法56条の2・別表第四）の指定ありとして北側斜線を"
+            "外しているが、日影規制そのものは本ツールでは未検証。"
+            "この結果は日影規制で削られる前の形であり、安全側ではない"
+        )
+    elif r.north_slant_start_mm is None and district in C.NORTH_SLANT and             C.NORTH_SLANT[district] is not None:
+        r.notes.append("北側斜線は適用なしとして算定（日影規制の指定は入力で切り替えられます）")
     if district == C.UseDistrict.UNDESIGNATED:
         r.notes.append(
             "用途地域の指定のない区域は法の原則値（道路斜線1.5・容積率係数6/10）で試算。"

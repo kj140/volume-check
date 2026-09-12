@@ -43,6 +43,7 @@ CONSTRAINT_COLORS: dict[Constraint | None, tuple[str, str]] = {
     # 規定: (塗り, 線)
     Constraint.ROAD_SLANT: ("#fecaca", "#dc2626"),
     Constraint.NEIGHBOR_SLANT: ("#bfdbfe", "#2563eb"),
+    Constraint.NORTH_SLANT: ("#ddd6fe", "#7c3aed"),
     Constraint.BCR: ("#fde68a", "#b45309"),
     None: ("#e2e8f0", "#64748b"),      # 斜線も建蔽率もかかっていない階
 }

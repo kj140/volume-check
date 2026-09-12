@@ -45,6 +45,7 @@ class Constraint(str, Enum):
 
     ROAD_SLANT = "道路斜線"
     NEIGHBOR_SLANT = "隣地斜線"
+    NORTH_SLANT = "北側斜線"
     BCR = "建蔽率"
 
     @property
@@ -52,6 +53,7 @@ class Constraint(str, Enum):
         return {
             Constraint.ROAD_SLANT: "法56条1項1号",
             Constraint.NEIGHBOR_SLANT: "法56条1項2号",
+            Constraint.NORTH_SLANT: "法56条1項3号",
             Constraint.BCR: "法53条",
         }[self]
 
@@ -183,6 +185,9 @@ class ZoningInput:
     far_designated: float
     height_limit_absolute_mm: float | None = None
     fire_zone: FireZone = FireZone.NONE
+    # 日影規制（法56条の2）の対象区域に指定されているか。
+    # 中高層住専では、指定があると北側斜線に代えて日影規制による（法56条1項3号）。
+    shadow_regulation: bool = False
 
     def __post_init__(self) -> None:
         if not 0 < self.bcr <= 1.0:
@@ -201,6 +206,7 @@ class ZoningInput:
             far_designated=float(d["far_designated"]),
             height_limit_absolute_mm=None if raw_limit is None else float(raw_limit) * M_TO_MM,
             fire_zone=FireZone(d.get("fire_zone") or FireZone.NONE.value),
+            shadow_regulation=bool(d.get("shadow_regulation", False)),
         )
 
 
@@ -301,6 +307,9 @@ class FloorResult:
     setback_neighbor_mm: float    # 隣地斜線による後退量（外壁後退を含まない）
     governing: str                # この階の形状を決めた規定（表示用の文字列）
 
+    # 北側斜線（法56条1項3号）で必要な真北方向の距離
+    setback_north_mm: float = 0.0
+
     # この階を削っている規定と、その規定を外したときの床面積の増分。
     # 増分の大きい順。空なら斜線も建蔽率もかかっていない。
     impacts: tuple[ConstraintImpact, ...] = ()
@@ -385,6 +394,10 @@ class VolumeResult:
     road_slant_applicable_distance_mm: float
     neighbor_slant_start_mm: float | None  # None は隣地斜線の適用なし
     neighbor_slant_gradient: float | None
+
+    # 北側斜線（法56条1項3号）。None は適用なし
+    north_slant_start_mm: float | None = None
+    north_slant_gradient: float | None = None
 
     # 実際に適用した絶対高さ制限。入力が None でも用途地域によっては既定値が入る。
     height_limit_applied_mm: float | None = None
@@ -507,6 +520,7 @@ class VolumeResult:
                     "area_m2": round(f.gross_area_mm2 / M2_TO_MM2, 3),
                     "setback_road_m": round(f.setback_road_mm / M_TO_MM, 3),
                     "setback_neighbor_m": round(f.setback_neighbor_mm / M_TO_MM, 3),
+                    "setback_north_m": round(f.setback_north_mm / M_TO_MM, 3),
                     "governing": f.governing,
                 }
                 for f in self.floors

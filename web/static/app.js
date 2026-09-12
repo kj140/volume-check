@@ -232,6 +232,7 @@ function payload() {
       far_designated: num("far_designated") / 100,
       height_limit_absolute: limit === "" ? null : parseFloat(limit),
       fire_zone: form.fire_zone.value,
+      shadow_regulation: form.shadow_regulation.checked,
     },
     program: {
       floor_height: num("floor_height"), gf_height: num("gf_height"),

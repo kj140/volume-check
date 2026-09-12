@@ -200,6 +200,44 @@ NEIGHBOR_SLANT: dict[UseDistrict, tuple[float, float] | None] = {
 
 
 # ---------------------------------------------------------------------------
+# 北側斜線制限（法56条1項3号）
+# ---------------------------------------------------------------------------
+# 北側の隣地境界線（前面道路が北側にあるときはその反対側の境界線）から、
+# 真北方向の水平距離 d だけ南に離れた点の高さの上限は
+#   立ち上がり高さ H0 + 勾配 × d
+# 値 = (立ち上がり高さ[m], 勾配) / None は「北側斜線制限の適用なし」。
+#
+# 道路斜線・隣地斜線が「その境界線に垂直な距離」で決まるのに対し、
+# 北側斜線は向きが常に真北で、敷地の向きと無関係であることに注意。
+#
+# 第一種・第二種中高層住居専用地域は、日影規制（法56条の2）の対象区域として
+# 指定されている場合は北側斜線の適用がない（法56条1項3号かっこ書き）。
+# 低層住専・田園住居は日影規制の有無にかかわらず適用される。
+NORTH_SLANT: dict[UseDistrict, tuple[float, float] | None] = {
+    UseDistrict.LOW_RISE_1: (5.0, 1.25),
+    UseDistrict.LOW_RISE_2: (5.0, 1.25),
+    UseDistrict.FARM_RESIDENTIAL: (5.0, 1.25),
+    UseDistrict.MID_HIGH_1: (10.0, 1.25),
+    UseDistrict.MID_HIGH_2: (10.0, 1.25),
+    # 以下は北側斜線制限の適用なし
+    UseDistrict.RESIDENTIAL_1: None,
+    UseDistrict.RESIDENTIAL_2: None,
+    UseDistrict.QUASI_RESIDENTIAL: None,
+    UseDistrict.NEIGHBORHOOD_COMMERCIAL: None,
+    UseDistrict.COMMERCIAL: None,
+    UseDistrict.QUASI_INDUSTRIAL: None,
+    UseDistrict.INDUSTRIAL: None,
+    UseDistrict.EXCLUSIVE_INDUSTRIAL: None,
+    UseDistrict.UNDESIGNATED: None,
+}
+
+# 日影規制の指定があると北側斜線が外れる用途地域（法56条1項3号かっこ書き）
+DISTRICTS_WHERE_SHADOW_RULE_REPLACES_NORTH_SLANT: frozenset[UseDistrict] = frozenset(
+    {UseDistrict.MID_HIGH_1, UseDistrict.MID_HIGH_2}
+)
+
+
+# ---------------------------------------------------------------------------
 # 防火地域・準防火地域（法61条・都市計画法8条1項5号）
 # ---------------------------------------------------------------------------
 
@@ -362,3 +400,16 @@ def neighbor_slant_measurement_distance_m(district: UseDistrict) -> float | None
         return None
     start_m, gradient = slant
     return start_m / gradient
+
+
+def north_slant(district: UseDistrict,
+                shadow_rule_applies: bool = False) -> tuple[float, float] | None:
+    """北側斜線の (立ち上がり高さ[m], 勾配)。適用がなければ None（法56条1項3号）。
+
+    中高層住専で日影規制の対象区域に指定されている場合は、北側斜線に代えて
+    日影規制によることとされているため None を返す（同号かっこ書き）。
+    """
+    if (shadow_rule_applies
+            and district in DISTRICTS_WHERE_SHADOW_RULE_REPLACES_NORTH_SLANT):
+        return None
+    return NORTH_SLANT[district]

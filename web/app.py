@@ -101,6 +101,12 @@ class ZoningIn(BaseModel):
     fire_zone: Literal["防火地域", "準防火地域", "指定なし"] = Field(
         default="指定なし", description="防火地域の指定（法61条）"
     )
+    shadow_regulation: bool = Field(
+        default=False,
+        description="日影規制（法56条の2）の対象区域か。"
+                    "中高層住専では指定があると北側斜線に代えて日影規制による"
+                    "（法56条1項3号）。日影規制そのものは本ツールでは未検証",
+    )
 
 
 class ProgramIn(BaseModel):
@@ -222,6 +228,12 @@ def _summary(r: VolumeResult) -> dict:
             else round(r.neighbor_slant_start_mm / MM, 1)
         ),
         "neighbor_slant_gradient": r.neighbor_slant_gradient,
+        "north_slant_start_m": (
+            None if r.north_slant_start_mm is None
+            else round(r.north_slant_start_mm / MM, 1)
+        ),
+        "north_slant_gradient": r.north_slant_gradient,
+        "shadow_regulation": r.input.zoning.shadow_regulation,
         "height_limit_applied_m": (
             None if r.height_limit_applied_mm is None
             else round(r.height_limit_applied_mm / MM, 2)
@@ -270,6 +282,7 @@ def _floors(r: VolumeResult) -> list[dict]:
             "cumulative_far_area_m2": round(cumulative / M2, 2),
             "setback_road_m": round(f.setback_road_mm / MM, 2),
             "setback_neighbor_m": round(f.setback_neighbor_mm / MM, 2),
+            "setback_north_m": round(f.setback_north_mm / MM, 2),
             "governing": f.governing,
             "dominant_constraint": (
                 f.dominant_constraint.value if f.dominant_constraint else None

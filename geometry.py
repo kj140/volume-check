@@ -48,7 +48,7 @@ __all__ = [
     "EdgeKind", "SiteEdge", "SiteShape", "Polygon", "LineString", "Point",
     "polygon_site", "rectangle_site", "buildable_region", "rotated_rectangle",
     "shrink_to_area", "largest_inscribed_rectangle", "inset_for_area",
-    "projection_range", "outline", "area_mm2",
+    "projection_range", "outline", "area_mm2", "north_slant_region",
 ]
 
 # 円を多角形で近似するときの分割数。頂点まわりの補正にのみ使う。
@@ -245,6 +245,56 @@ def buildable_region(
         return site.polygon
     region = site.polygon.difference(unary_union(bands))
     return region if not region.is_empty else Polygon()
+
+
+def north_slant_region(region, site: Polygon, north_angle_rad: float,
+                       distance_mm: float, step_mm: float = 500.0):
+    """北側斜線（法56条1項3号）で残る範囲を返す。
+
+    道路斜線・隣地斜線が「その境界線に垂直な距離」で決まるのに対し、北側斜線は
+    真北方向の水平距離で決まる。したがって辺ごとの帯では表せない。
+
+    高さ h の点に必要な真北方向の距離を d とすると、残せるのは
+    「その点から真北へ d 進んでも敷地の外に出ない点」の集合になる。これは
+    敷地を真北向きの線分で収縮（erosion）したものにほかならない。
+
+    凸な敷地では「敷地 ∩ 敷地を南へ d ずらしたもの」がそのまま答えになる。
+    凹な敷地は途中でいったん敷地の外に出る経路がありうるので、step_mm 刻みの
+    途中点でも敷地内であることを課す。刻みを細かくすれば真の収縮に収束する。
+    """
+    if distance_mm <= _LENGTH_EPS_MM or region.is_empty:
+        return region
+
+    # 真北の単位ベクトル。南へずらすので符号は反転させる。
+    nx, ny = math.cos(north_angle_rad), math.sin(north_angle_rad)
+
+    steps = [distance_mm]
+    if not site.equals(site.convex_hull):
+        count = max(1, int(math.ceil(distance_mm / step_mm)))
+        steps = [distance_mm * k / count for k in range(1, count + 1)]
+
+    result = region
+    for d in steps:
+        result = result.intersection(
+            affinity.translate(site, -nx * d, -ny * d)
+        )
+        if result.is_empty:
+            return Polygon()
+    return result
+
+
+def north_projection_mm(shape, site: Polygon, north_angle_rad: float) -> float:
+    """図形が敷地の北端からどれだけ南へ下がっているか（真北方向の距離）。
+
+    北側斜線の「後退量」として表示するための値。図形が空なら 0。
+    """
+    if shape is None or shape.is_empty or site.is_empty:
+        return 0.0
+    # projection_range は指定した角度に直交する向きの範囲を返すので 90 度ずらす
+    axis = north_angle_rad - math.pi / 2
+    _, site_north = projection_range(site, axis)
+    _, shape_north = projection_range(shape, axis)
+    return max(0.0, site_north - shape_north)
 
 
 # ---------------------------------------------------------------------------

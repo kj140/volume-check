@@ -261,9 +261,16 @@ class SkyFactorStudy:
         """天空率を検討する価値があるか（増える床があるか）。"""
         return self.gain_mm2 > _AREA_EPS_MM2
 
+    # 北側斜線がかかるのに天空率を判定していない場合に立てる
+    north_slant_unchecked: bool = False
+
     @property
     def passes(self) -> bool:
-        """すべての境界の、すべての算定位置で適合建築物以上か。"""
+        """判定した境界すべての算定位置で適合建築物以上か。
+
+        北側斜線は未対応なので、north_slant_unchecked が立っているときの
+        passes は「道路・隣地については通る」という意味にとどまる。
+        """
         return bool(self.edges) and all(e.passes for e in self.edges)
 
     @property
@@ -283,6 +290,7 @@ class SkyFactorStudy:
             "passes": self.passes,
             "worst_margin_pct": (round(self.worst_margin * 100.0, 3)
                                  if self.worst_margin is not None else None),
+            "north_slant_unchecked": self.north_slant_unchecked,
             "gain_m2": round(self.gain_mm2 / C.M2_TO_MM2, 2),
             "planned": {
                 "floor_count": self.planned_floor_count,
@@ -587,6 +595,7 @@ def evaluate(result: VolumeResult,
              neighbor_capped: bool = NEIGHBOR_ENVELOPE_CAPPED) -> SkyFactorStudy:
     """天空率で道路斜線を緩和できる見込みがあるかを判定する（法56条7項1号）。"""
     study = SkyFactorStudy(
+        north_slant_unchecked=result.north_slant_start_mm is not None,
         base_total_gross_area_mm2=result.total_gross_area_mm2,
         base_max_height_mm=result.max_height_mm,
         wall_setback_mm=(result.input.program.wall_setback_mm
@@ -671,8 +680,10 @@ def _set_verdict(study: SkyFactorStudy) -> None:
 
     kinds = sorted({e.slant_name for e in study.edges})
     if study.passes:
+        caveat = ("　ただし北側斜線は未対応です。"
+                  if study.north_slant_unchecked else "")
         study.verdict = (
-            f"天空率で{'と'.join(kinds)}を緩和できる見込みがあります。"
+            f"天空率で{'と'.join(kinds)}を緩和できる見込みがあります。{caveat}"
             f"すべての算定位置で計画建築物の天空率が適合建築物を上回り、"
             f"最も不利な位置でも {worst * 100:+.2f} ポイントの余裕があります。"
             f"通れば延床は {gain_m2:,.1f}m2 増え、"
@@ -750,4 +761,10 @@ def _add_notes(study: SkyFactorStudy, result: VolumeResult) -> None:
         study.notes.append(
             f"{result.input.zoning.use_district.value}は隣地斜線の適用がないため"
             f"（法55条の絶対高さ制限による）、道路斜線だけを判定しています。"
+        )
+    if result.north_slant_start_mm is not None:
+        study.notes.append(
+            "【要注意】この敷地には北側斜線（法56条1項3号）もかかりますが、"
+            "その天空率（令135条の8・11）は未対応です。ここで「通る」と出ても"
+            "北側斜線は別途クリアする必要があり、計画建築物はその形では建ちません。"
         )
