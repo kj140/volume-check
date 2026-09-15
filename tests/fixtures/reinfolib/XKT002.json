@@ -1,0 +1,77 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "youto_id": 1,
+    "u_youto_ja": "第一種低層住居専用地域",
+    "u_building_coverage_ratio_ja": "50%",
+    "u_floor_area_ratio_ja": "100%"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       140.767,
+       36.681
+      ],
+      [
+       140.777,
+       36.681
+      ],
+      [
+       140.777,
+       36.690999999999995
+      ],
+      [
+       140.767,
+       36.690999999999995
+      ],
+      [
+       140.767,
+       36.681
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "youto_id": 9,
+    "u_youto_ja": "商業地域",
+    "u_building_coverage_ratio_ja": "80%",
+    "u_floor_area_ratio_ja": "800%"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       139.757,
+       35.671
+      ],
+      [
+       139.777,
+       35.671
+      ],
+      [
+       139.777,
+       35.690999999999995
+      ],
+      [
+       139.757,
+       35.690999999999995
+      ],
+      [
+       139.757,
+       35.671
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

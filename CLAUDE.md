@@ -78,7 +78,9 @@
 
 ## コマンド
 
-<!-- M00 で調べて記入する -->
-- 起動：
-- テスト全件：
-- 回帰テストだけ：
+- 起動（Web・開発）：`.venv/Scripts/python.exe -m uvicorn web.app:app --port 8790`（`.claude/launch.json` の `volume-check`）
+- 起動（CLI）：`.venv/Scripts/python.exe main.py samples/case_road12.json out/case_road12.dxf`
+- テスト全件：`.venv/Scripts/python.exe -m pytest -q`
+- 回帰テストだけ：`.venv/Scripts/python.exe -m pytest tests/regression -q`
+- 手計算ケースだけ：`.venv/Scripts/python.exe -m pytest tests/test_cases.py -q`
+- 回帰結果の保存（意図した更新のときだけ。ユーザー確認後）：`.venv/Scripts/python.exe tests/regression/record.py --force`

@@ -1,0 +1,30 @@
+[
+ {
+  "geometry": {
+   "type": "Point",
+   "coordinates": [
+    139.7671,
+    35.6812
+   ]
+  },
+  "type": "Feature",
+  "properties": {
+   "addressCode": "",
+   "title": "東京都千代田区丸の内一丁目"
+  }
+ },
+ {
+  "geometry": {
+   "type": "Point",
+   "coordinates": [
+    139.764,
+    35.6805
+   ]
+  },
+  "type": "Feature",
+  "properties": {
+   "addressCode": "",
+   "title": "東京都千代田区丸の内二丁目"
+  }
+ }
+]

@@ -1,0 +1,38 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "area_classification_ja": "市街化区域"
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       139.757,
+       35.671
+      ],
+      [
+       139.777,
+       35.671
+      ],
+      [
+       139.777,
+       35.690999999999995
+      ],
+      [
+       139.757,
+       35.690999999999995
+      ],
+      [
+       139.757,
+       35.671
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

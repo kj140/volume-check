@@ -1,0 +1,870 @@
+{
+ "volume": {
+  "far_designated": 4.0,
+  "far_by_road": 4.8,
+  "far_effective": 4.0,
+  "far_road_coefficient": 0.6,
+  "site_area_mm2": 556000000.0,
+  "max_far_area_mm2": 2224000000.0,
+  "max_building_area_mm2": 444800000.0,
+  "road_slant_gradient": 1.5,
+  "road_slant_applicable_distance_mm": 20000.0,
+  "neighbor_slant_start_mm": 31000.0,
+  "neighbor_slant_gradient": 2.5,
+  "north_slant_start_mm": null,
+  "north_slant_gradient": null,
+  "height_limit_applied_mm": null,
+  "bcr_effective": 0.8,
+  "bcr_relaxations": [],
+  "building_angle_rad": 0.0,
+  "building_angle_deg": 0.0,
+  "footprint": [
+   [
+    4750.0,
+    500.0
+   ],
+   [
+    25750.0,
+    500.0
+   ],
+   [
+    25750.0,
+    17500.0
+   ],
+   [
+    4750.0,
+    17500.0
+   ]
+  ],
+  "bcr_inset_mm": 0.0,
+  "floors": [
+   {
+    "floor": 1,
+    "level_mm": 0.0,
+    "story_height_mm": 4500.0,
+    "top_mm": 4500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 500.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 17000.0,
+    "setback_road_mm": 0.0,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "敷地形状・外壁後退のみ",
+    "impacts": [],
+    "dominant_constraint": null,
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      1061.5528128088336
+     ],
+     [
+      25609.61179679779,
+      500.0
+     ],
+     [
+      4750.0,
+      500.0
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 356910163.22475857,
+    "gross_area_mm2": 356910163.22475857,
+    "far_area_mm2": 356910163.22475857,
+    "rentable_area_mm2": 292666333.84430206,
+    "area_loss_mm2": 0.0
+   },
+   {
+    "floor": 2,
+    "level_mm": 4500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 8500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 500.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 17000.0,
+    "setback_road_mm": 0.0,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "敷地形状・外壁後退のみ",
+    "impacts": [],
+    "dominant_constraint": null,
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      1061.5528128088336
+     ],
+     [
+      25609.61179679779,
+      500.0
+     ],
+     [
+      4750.0,
+      500.0
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 356910163.22475857,
+    "gross_area_mm2": 356910163.22475857,
+    "far_area_mm2": 356910163.22475857,
+    "rentable_area_mm2": 292666333.84430206,
+    "area_loss_mm2": 0.0
+   },
+   {
+    "floor": 3,
+    "level_mm": 8500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 12500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 500.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 17000.0,
+    "setback_road_mm": 333.33333333333394,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "敷地形状・外壁後退のみ",
+    "impacts": [],
+    "dominant_constraint": null,
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      1061.5528128088336
+     ],
+     [
+      25609.61179679779,
+      500.0
+     ],
+     [
+      4750.0,
+      500.0
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 356910163.22475857,
+    "gross_area_mm2": 356910163.22475857,
+    "far_area_mm2": 356910163.22475857,
+    "rentable_area_mm2": 292666333.84430206,
+    "area_loss_mm2": 0.0
+   },
+   {
+    "floor": 4,
+    "level_mm": 12500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 16500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 3000.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 14500.0,
+    "setback_road_mm": 3000.0,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 52460582.30480331,
+      "setback_mm": 3000.0
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      3000.0
+     ],
+     [
+      4750.0,
+      3000.0
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 304449580.91995525,
+    "gross_area_mm2": 304449580.91995525,
+    "far_area_mm2": 304449580.91995525,
+    "rentable_area_mm2": 249648656.35436332,
+    "area_loss_mm2": 52460582.30480331
+   },
+   {
+    "floor": 5,
+    "level_mm": 16500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 20500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 5666.666666666666,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 11833.333333333334,
+    "setback_road_mm": 5666.666666666666,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 108460582.30480331,
+      "setback_mm": 5666.666666666666
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      5666.666666666666
+     ],
+     [
+      4750.0,
+      5666.666666666666
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 248449580.91995525,
+    "gross_area_mm2": 248449580.91995525,
+    "far_area_mm2": 248449580.91995525,
+    "rentable_area_mm2": 203728656.35436332,
+    "area_loss_mm2": 108460582.30480331
+   },
+   {
+    "floor": 6,
+    "level_mm": 20500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 24500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 8333.333333333334,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 9166.666666666666,
+    "setback_road_mm": 8333.333333333334,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 164460582.3048033,
+      "setback_mm": 8333.333333333334
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      8333.333333333334
+     ],
+     [
+      4750.0,
+      8333.333333333334
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 192449580.91995525,
+    "gross_area_mm2": 192449580.91995525,
+    "far_area_mm2": 192449580.91995525,
+    "rentable_area_mm2": 157808656.35436332,
+    "area_loss_mm2": 164460582.3048033
+   },
+   {
+    "floor": 7,
+    "level_mm": 24500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 28500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 11000.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 6500.0,
+    "setback_road_mm": 11000.0,
+    "setback_neighbor_mm": 0.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 220460582.30480334,
+      "setback_mm": 11000.0
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": false,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      4981.024967590666,
+      17500.0
+     ],
+     [
+      25393.892774775482,
+      17500.0
+     ],
+     [
+      25750.0,
+      17341.730122122437
+     ],
+     [
+      25750.0,
+      11000.0
+     ],
+     [
+      4750.0,
+      11000.0
+     ],
+     [
+      4750.0,
+      17307.479193674444
+     ]
+    ],
+    "area_mm2": 136449580.91995522,
+    "gross_area_mm2": 136449580.91995522,
+    "far_area_mm2": 136449580.91995522,
+    "rentable_area_mm2": 111888656.35436329,
+    "area_loss_mm2": 220460582.30480334
+   },
+   {
+    "floor": 8,
+    "level_mm": 28500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 32500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 12000.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 5500.0,
+    "setback_road_mm": 12000.0,
+    "setback_neighbor_mm": 600.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線(適用距離で頭打ち) + 隣地斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 241381448.76576394,
+      "setback_mm": 12000.0
+     },
+     {
+      "constraint": "隣地斜線",
+      "area_gain_mm2": 92681.03823116422,
+      "setback_mm": 600.0
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": true,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      5137.229961108798,
+      17500.0
+     ],
+     [
+      25147.671329730583,
+      17500.0
+     ],
+     [
+      25750.0,
+      17232.29836876915
+     ],
+     [
+      25750.0,
+      12000.0
+     ],
+     [
+      4750.0,
+      12000.0
+     ],
+     [
+      4750.0,
+      17177.30836574267
+     ]
+    ],
+    "area_mm2": 115356899.88172407,
+    "gross_area_mm2": 115356899.88172407,
+    "far_area_mm2": 115356899.88172407,
+    "rentable_area_mm2": 94592657.90301375,
+    "area_loss_mm2": 241553263.3430345
+   },
+   {
+    "floor": 9,
+    "level_mm": 32500.0,
+    "story_height_mm": 4000.0,
+    "top_mm": 36500.0,
+    "x_min_mm": 4250.0,
+    "x_max_mm": 25250.0,
+    "y_min_mm": 12000.0,
+    "y_max_mm": 17500.0,
+    "width_mm": 21000.0,
+    "depth_mm": 5500.0,
+    "setback_road_mm": 12000.0,
+    "setback_neighbor_mm": 2200.0,
+    "setback_north_mm": 0.0,
+    "governing": "道路斜線(適用距離で頭打ち) + 隣地斜線",
+    "impacts": [
+     {
+      "constraint": "道路斜線",
+      "area_gain_mm2": 234337708.09408972,
+      "setback_mm": 12000.0
+     },
+     {
+      "constraint": "隣地斜線",
+      "area_gain_mm2": 8005355.427707687,
+      "setback_mm": 2200.0
+     }
+    ],
+    "dominant_constraint": "道路斜線",
+    "road_slant_capped": true,
+    "unconstrained_area_mm2": 356910163.22475857,
+    "outline": [
+     [
+      7636.509857398929,
+      17500.0
+     ],
+     [
+      21208.128209012142,
+      17500.0
+     ],
+     [
+      25750.0,
+      15481.390315116507
+     ],
+     [
+      25750.0,
+      12000.0
+     ],
+     [
+      4750.0,
+      12000.0
+     ],
+     [
+      4750.0,
+      15094.575118834226
+     ]
+    ],
+    "area_mm2": 107444225.49224755,
+    "gross_area_mm2": 107444225.49224755,
+    "far_area_mm2": 107444225.49224755,
+    "rentable_area_mm2": 88104264.903643,
+    "area_loss_mm2": 249465937.732511
+   }
+  ],
+  "floor_count": 9,
+  "total_gross_area_mm2": 2175329938.7280684,
+  "total_far_area_mm2": 2175329938.7280684,
+  "total_rentable_area_mm2": 1783770549.7570162,
+  "building_area_mm2": 356910163.22475857,
+  "max_height_mm": 36500.0,
+  "achieved_far": 3.9124639185756624,
+  "achieved_bcr": 0.6419247540013643,
+  "total_area_loss_mm2": 1036861530.2947588,
+  "constraint_gains_mm2": [
+   [
+    "道路斜線",
+    1021561486.079067
+   ],
+   [
+    "隣地斜線",
+    8098036.465938851
+   ]
+  ],
+  "dominant_constraint": "道路斜線",
+  "stop_reason": "床面積が最小成立面積未満",
+  "stop_detail": "10階の床面積 86.64m2 が最小成立面積 100m2 未満",
+  "applied_rules": [
+   {
+    "label": "用途地域",
+    "value": "商業地域",
+    "basis": "都市計画法8条1項1号"
+   },
+   {
+    "label": "指定建蔽率",
+    "value": "80%",
+    "basis": "法53条1項"
+   },
+   {
+    "label": "指定容積率",
+    "value": "400%",
+    "basis": "法52条1項"
+   },
+   {
+    "label": "前面道路幅員による容積率",
+    "value": "8.0m × 0.6 = 480%",
+    "basis": "法52条2項"
+   },
+   {
+    "label": "実効容積率",
+    "value": "400%",
+    "basis": "法52条1項・2項"
+   },
+   {
+    "label": "道路斜線 勾配",
+    "value": "1.5",
+    "basis": "法56条1項1号・別表第三(に)欄"
+   },
+   {
+    "label": "道路斜線 適用距離",
+    "value": "20m（指定容積率 400% による）",
+    "basis": "法56条1項1号・別表第三(は)欄"
+   },
+   {
+    "label": "隣地斜線",
+    "value": "立ち上がり 31m / 勾配 2.5",
+    "basis": "法56条1項2号"
+   },
+   {
+    "label": "北側斜線",
+    "value": "適用なし",
+    "basis": "法56条1項3号"
+   }
+  ],
+  "notes": [
+   "容積率対象床面積は床面積と同一として算定（法52条3項〜6項の不算入は未考慮）",
+   "法56条4項の後退距離による道路斜線の緩和は未考慮（安全側）",
+   "外壁後退と斜線による後退は、足し合わせず大きいほうを適用（どちらも境界線からの離れを定めるものであるため）",
+   "法53条3項の角地緩和・防火地域内耐火建築物の緩和は未適用（該当する場合は入力で指定すると反映されます）",
+   "法52条9項の特定道路による容積率緩和は未考慮（安全側）"
+  ]
+ },
+ "study": {
+  "cases": [
+   {
+    "building_angle_deg": -10.0,
+    "floor_height_m": 3.6,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 8,
+    "max_height_m": 29.7,
+    "building_area_m2": 335.9659474906657,
+    "total_gross_area_m2": 2180.7873769139533,
+    "total_far_area_m2": 2180.7873769139533,
+    "total_rentable_area_m2": 1788.2456490694417,
+    "achieved_far": 3.922279454881211,
+    "stop_reason": "容積率の上限に到達",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -1.389,
+     "gain_m2": 43.212623077272895
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": 0.0,
+    "floor_height_m": 3.6,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 8,
+    "max_height_m": 29.7,
+    "building_area_m2": 356.91016322475855,
+    "total_gross_area_m2": 2172.978394274052,
+    "total_far_area_m2": 2172.978394274052,
+    "total_rentable_area_m2": 1781.8422833047227,
+    "achieved_far": 3.9082345220756327,
+    "stop_reason": "容積率の上限に到達",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -2.886,
+     "gain_m2": 51.021605716361044
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": 10.0,
+    "floor_height_m": 3.6,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 9,
+    "max_height_m": 33.3,
+    "building_area_m2": 328.93436620316714,
+    "total_gross_area_m2": 2172.1361819138847,
+    "total_far_area_m2": 2172.1361819138847,
+    "total_rentable_area_m2": 1781.1516691693855,
+    "achieved_far": 3.9067197516436774,
+    "stop_reason": "床面積が最小成立面積未満",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -2.263,
+     "gain_m2": 51.86381806740618
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": -10.0,
+    "floor_height_m": 4.2,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 9,
+    "max_height_m": 38.1,
+    "building_area_m2": 335.9659474906657,
+    "total_gross_area_m2": 2142.5711040570586,
+    "total_far_area_m2": 2142.5711040570586,
+    "total_rentable_area_m2": 1756.9083053267882,
+    "achieved_far": 3.85354515118176,
+    "stop_reason": "床面積が最小成立面積未満",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -1.935,
+     "gain_m2": 81.42889593416763
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": 0.0,
+    "floor_height_m": 4.2,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 9,
+    "max_height_m": 38.1,
+    "building_area_m2": 356.91016322475855,
+    "total_gross_area_m2": 2114.896079534059,
+    "total_far_area_m2": 2114.896079534059,
+    "total_rentable_area_m2": 1734.2147852179285,
+    "achieved_far": 3.8037699272195304,
+    "stop_reason": "床面積が最小成立面積未満",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -3.361,
+     "gain_m2": 109.1039204563539
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": 10.0,
+    "floor_height_m": 4.2,
+    "wall_setback_m": 0.5,
+    "fireproof": false,
+    "floor_count": 7,
+    "max_height_m": 29.7,
+    "building_area_m2": 328.93436620316714,
+    "total_gross_area_m2": 1806.3939943455262,
+    "total_far_area_m2": 1806.3939943455262,
+    "total_rentable_area_m2": 1481.2430753633316,
+    "achieved_far": 3.2489100617725293,
+    "stop_reason": "床面積が最小成立面積未満",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": false,
+     "margin_pct": -3.031,
+     "gain_m2": 417.6060056357646
+    },
+    "added_for_sky": false
+   },
+   {
+    "building_angle_deg": 0.0,
+    "floor_height_m": 3.6,
+    "wall_setback_m": 3.0,
+    "fireproof": false,
+    "floor_count": 7,
+    "max_height_m": 26.1,
+    "building_area_m2": 218.70968436664444,
+    "total_gross_area_m2": 1321.0189386748343,
+    "total_far_area_m2": 1321.0189386748343,
+    "total_rentable_area_m2": 1083.235529713364,
+    "achieved_far": 2.3759333429403493,
+    "stop_reason": "床面積が最小成立面積未満",
+    "dominant_constraint": "道路斜線",
+    "sky": {
+     "checked": true,
+     "worth": true,
+     "passes": true,
+     "margin_pct": 1.996,
+     "gain_m2": 902.9810613188744
+    },
+    "added_for_sky": true
+   }
+  ],
+  "baseline": {
+   "building_angle_deg": 0.0,
+   "floor_height_m": 4.0,
+   "wall_setback_m": 0.5,
+   "fireproof": false,
+   "floor_count": 9,
+   "max_height_m": 36.5,
+   "building_area_m2": 356.91016322475855,
+   "total_gross_area_m2": 2175.3299387280686,
+   "total_far_area_m2": 2175.3299387280686,
+   "total_rentable_area_m2": 1783.7705497570162,
+   "achieved_far": 3.9124639185756624,
+   "stop_reason": "床面積が最小成立面積未満",
+   "dominant_constraint": "道路斜線",
+   "sky": {
+    "checked": true,
+    "worth": true,
+    "passes": false,
+    "margin_pct": -3.218,
+    "gain_m2": 48.67006126234436
+   },
+   "added_for_sky": false
+  },
+  "best": {
+   "building_angle_deg": -10.0,
+   "floor_height_m": 3.6,
+   "wall_setback_m": 0.5,
+   "fireproof": false,
+   "floor_count": 8,
+   "max_height_m": 29.7,
+   "building_area_m2": 335.9659474906657,
+   "total_gross_area_m2": 2180.7873769139533,
+   "total_far_area_m2": 2180.7873769139533,
+   "total_rentable_area_m2": 1788.2456490694417,
+   "achieved_far": 3.922279454881211,
+   "stop_reason": "容積率の上限に到達",
+   "dominant_constraint": "道路斜線",
+   "sky": {
+    "checked": true,
+    "worth": true,
+    "passes": false,
+    "margin_pct": -1.389,
+    "gain_m2": 43.212623077272895
+   },
+   "added_for_sky": false
+  },
+  "sky_suggestion": null,
+  "notes": [
+   "最良案は入力のままの案より延床 5.5m2 大きくなります（振り角 -10度・基準階高 3.6m・外壁後退 0.5m）。",
+   "最良案でも 道路斜線 が最大の削減要因です。",
+   "最良案の打ち切り理由: 容積率の上限に到達",
+   "振っているのは計画側の選択（建物の向き・階高・外壁後退）だけで、法規条件は変えていません。",
+   "天空率まで見ると、振り角 +0度・階高 3.6m・外壁後退 3.0m の案が斜線制限を外せる見込みで、延床は 2,224.0m2（+903.0m2）まで伸ばせます。",
+   "末尾の 1 案は延床順では表に入りませんが、外壁後退ごとの最良案として天空率のために足しています。"
+  ],
+  "angle_sweep": [
+   [
+    -10.0,
+    2202.2738873543535
+   ],
+   [
+    0.0,
+    2175.3299387280686
+   ],
+   [
+    10.0,
+    1961.569984442409
+   ]
+  ]
+ }
+}

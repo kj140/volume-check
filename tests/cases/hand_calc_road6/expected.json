@@ -1,0 +1,65 @@
+{
+ "tolerance": {
+  "length_abs_m": 0.01,
+  "floor_area_rel": 0.0001,
+  "total_area_rel": 1e-05,
+  "exact_rel": 1e-09
+ },
+ "far_effective": 3.6,
+ "far_by_road": 3.6,
+ "max_far_area_m2": 2160.0,
+ "max_building_area_m2": 480.0,
+ "bcr_inset_m": 0.7639,
+ "floor_count": 5,
+ "max_height_m": 21.3,
+ "stop_reason": "容積率の上限に到達",
+ "total_far_area_m2": 2143.159,
+ "top_floor_governing": null,
+ "floors": [
+  {
+   "floor": 1,
+   "top_m": 4.5,
+   "setback_road_m": 0.0,
+   "setback_neighbor_m": 0.0,
+   "width_m": 17.4722,
+   "depth_m": 27.4722,
+   "area_m2": 480.0
+  },
+  {
+   "floor": 2,
+   "top_m": 8.7,
+   "setback_road_m": 0.0,
+   "setback_neighbor_m": 0.0,
+   "width_m": 17.4722,
+   "depth_m": 27.4722,
+   "area_m2": 480.0
+  },
+  {
+   "floor": 3,
+   "top_m": 12.9,
+   "setback_road_m": 2.6,
+   "setback_neighbor_m": 0.0,
+   "width_m": 17.4722,
+   "depth_m": 25.3722,
+   "area_m2": 443.308
+  },
+  {
+   "floor": 4,
+   "top_m": 17.1,
+   "setback_road_m": 5.4,
+   "setback_neighbor_m": 0.0,
+   "width_m": 17.4722,
+   "depth_m": 22.5722,
+   "area_m2": 394.386
+  },
+  {
+   "floor": 5,
+   "top_m": 21.3,
+   "setback_road_m": 8.2,
+   "setback_neighbor_m": 0.0,
+   "width_m": 17.4722,
+   "depth_m": 19.7722,
+   "area_m2": 345.464
+  }
+ ]
+}

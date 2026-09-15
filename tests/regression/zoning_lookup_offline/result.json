@@ -1,0 +1,58 @@
+{
+ "zoning_lookup": {
+  "zoning": {
+   "district": "商業地域",
+   "bcr": 0.8,
+   "far": 8.0,
+   "source": "reinfolib",
+   "detail": ""
+  },
+  "fire_zone": "防火地域",
+  "area_classification": "市街化区域",
+  "district_plan": null,
+  "high_use_district": null,
+  "warnings": [
+   "防火地域です。耐火建築物等とすれば建蔽率が10%緩和されます（法53条3項1号イ）。適用する場合は「建蔽率の緩和」を有効にしてください。"
+  ],
+  "unavailable": [
+   "高度地区（法58条の高さの最高限度）",
+   "前面道路の幅員・道路種別（法42条の何項か）",
+   "日影規制の指定"
+  ]
+ },
+ "zoning_endpoint": {
+  "zoning": {
+   "district": "商業地域",
+   "bcr": 0.8,
+   "far": 8.0,
+   "source": "reinfolib",
+   "detail": ""
+  },
+  "fire_zone": "防火地域",
+  "area_classification": "市街化区域",
+  "district_plan": null,
+  "high_use_district": null,
+  "warnings": [
+   "防火地域です。耐火建築物等とすれば建蔽率が10%緩和されます（法53条3項1号イ）。適用する場合は「建蔽率の緩和」を有効にしてください。"
+  ],
+  "unavailable": [
+   "高度地区（法58条の高さの最高限度）",
+   "前面道路の幅員・道路種別（法42条の何項か）",
+   "日影規制の指定"
+  ]
+ },
+ "geocode": {
+  "results": [
+   {
+    "title": "東京都千代田区丸の内一丁目",
+    "lon": 139.7671,
+    "lat": 35.6812
+   },
+   {
+    "title": "東京都千代田区丸の内二丁目",
+    "lon": 139.764,
+    "lat": 35.6805
+   }
+  ]
+ }
+}
