@@ -29,6 +29,8 @@
 
 適用した規定と根拠条文、および未考慮事項は**すべて図面上に自動で印字される**。
 
+引き継ぎ・経緯・今後の道筋は [docs/HANDOFF.md](docs/HANDOFF.md)、作業ルールは [CLAUDE.md](CLAUDE.md)。
+
 ## 使い方
 
 ### CLI
