@@ -1,6 +1,6 @@
 # 既存コードの実態（current_state）
 
-M00（2026-09-16、タグ `m00-baseline`）時点の記録。以後のマイルストーンで更新する。
+M00（2026-09-16、タグ `m00-baseline`）時点の記録。M01（2026-09-17）で 9. と 10.・11. を更新した。
 本体コードは M00 では変えていない。気づいた点は「11. 食い違い・懸念」に**記録だけ**している。
 
 ---
@@ -233,12 +233,24 @@ SVG（`web/svg_section.py`・`web/svg_plan.py`）は `section.py`・`plan.py` �
   `tests/test_cases.py` が照合する。元のテストは残している。
 - 依存ライブラリの追加・更新はなし。
 
+### M01 で追加したもの（2026-09-17）
+
+solver・既存の入出力は無変更。回帰テスト全件通過。
+
+- `model/`：`types.py`（FactValue / PlanValue / SiteFacts / PlanConditions / Scheme / StageResult /
+  AppliedRule / NotConsidered / Level / GridAxis。pydantic v2）、`hashing.py`（正規化 JSON と SHA-256）、
+  `patch.py`（差分の検査。`chat`・`batch` からの敷地事実の変更を拒否）、`legacy.py`（既存入力との相互変換）。
+- `store/`：`sqlite.py` の `SchemeStore`（schemes / stage_results。save・get・derive・list）。
+- `tests/test_model.py`・`tests/test_store.py`（69 件）。
+- `requirements.txt` に `pydantic==2.13.5` を明示（fastapi 経由で同じ版が入っていた）。
+- 決めたことは `docs/decisions/0003-m01-data-model.md`。`docs/architecture.md` §4.1・4.3・4.4・4.5 を更新。
+
 ## 10. `docs/architecture.md` との対応表（現在の場所 → 目標の場所）
 
 | 現在 | 目標（architecture.md §3） | 備考 |
 |---|---|---|
 | `constants.py` | `solver/law/constants.py` | そのまま移せる。`relaxed_bcr()` は関数だが法規定数の一部として扱う |
-| `models.py`（入力 dataclass） | `model/`（SiteFacts / PlanConditions） | 値の出所（FactValue / PlanValue）は未導入 |
+| `models.py`（入力 dataclass） | `model/`（SiteFacts / PlanConditions） | M01 で `model/types.py` を追加。既存 dataclass との橋渡しは `model/legacy.py`。M02 で算定を包む |
 | `models.py`（VolumeResult / FloorResult） | `solver/volume/`（段の結果の型）＋ `model/`（StageResult への包み） | applied_rules / notes の形が違う（下記） |
 | `geometry.py` | `solver/volume/geometry.py` | |
 | `solver.py` | `solver/volume/` | |
@@ -254,7 +266,8 @@ SVG（`web/svg_section.py`・`web/svg_plan.py`）は `section.py`・`plan.py` �
 | `samples/` | `tests/cases/` または docs の例 | 回帰ケースの入力としても使用 |
 | `docs/HANDOFF.md` / `docs/PROJECT_INSTRUCTIONS.md` | （目標構成に該当なし） | 経緯の記録として残す |
 | `tests/*.py` | `tests/` | |
-| （なし） | `store/`, `tools/`, `model/patch.py`, `drawing/model/`, `solver/{estimate,core,grid,site}` | 未作成 |
+| `model/`, `store/`（M01 で作成） | `model/`, `store/` | |
+| （なし） | `tools/`, `api/`, `data/`, `drawing/model/`, `solver/{estimate,core,grid,site}` | 未作成 |
 
 ## 11. `docs/architecture.md` と食い違う点・気づいた懸念（修正はしない）
 
@@ -262,23 +275,21 @@ SVG（`web/svg_section.py`・`web/svg_plan.py`）は `section.py`・`plan.py` �
 
 1. **レイヤ接頭辞**：既存は敷地・道路に `S-SITE`・`S-ROAD` を使う。architecture §7 は `S-` を構造用に予約。
    M03 で対応を決める必要がある。
-2. **座標系の約束**：architecture §4.1 は「X＝東、Y＝北、原点＝第1頂点、真北＝座標北から時計回り正」。
-   既存は「矩形は道路境界が y＝0、多角形は与えられた座標のまま、北は +x から反時計回りの角度」。
-   §4.1 は「既存の座標系を M00 で記録し、それを正とする」としているので、本文書の 6. を正とするか
-   §4.1 に寄せるかはユーザーの判断。
+2. **座標系の約束**：~~architecture §4.1 と既存が異なっていた~~ → M01 で既存を正とし §4.1 を書き直した（解消）。
 3. **角度の単位**：architecture は「角度は度」。既存は入力 度・内部 ラジアン。
 4. **AppliedRule の形**：既存は (label, value, basis) の表示用文字列。architecture §4.6 は
    rule_id・article・summary・effect_mm2。`rule_id` に相当するものはない（`Constraint` 列挙が近い）。
 5. **未考慮事項の形**：既存は `notes: list[str]`（自由文）。architecture は `NotConsidered(item, direction, note)`。
    「実際より大きく出る（危険側）」の区別は文中の【要注意】表記のみ。
-6. **値の出所**：既存の入力に FactValue / PlanValue はない。既定値は `web/app.py`（pydantic）、
-   `index.html`、`models.py`、`constants.py`（絶対高さ 10m）に分散し、画面と API で一部異なる
-   （`road_width` 既定：画面 12、API 6）。
-7. **敷地事実の項目**：architecture §4.3 の `edges` の道路種別、`height_district`、`district_plan` は
-   既存入力にない（`web/zoning.py` は地区計画・高度利用地区を警告文として返すだけ）。
-   `true_north_deg` は `north_angle` に相当。既存にあって表にない：`road_side`、`corner_lot`、`shadow_regulation`。
-8. **計画条件**：既存は `core_ratio`・`max_floors`・`gf_height`（1 階の階高）を持つ。§4.4 にない項目なので M01 で追加。
-9. **段の結果の保存**：`store/` はない。案 ID・親案・ハッシュ・solver_version もない。
+6. **値の出所**：既存の入力に FactValue / PlanValue はない → M01 で `model/` に導入。既存入力との対応は
+   `model/legacy.py`。既存側の既定値は引き続き `web/app.py`（pydantic）、`index.html`、`models.py`、
+   `constants.py`（絶対高さ 10m）に分散し、画面と API で一部異なる（`road_width` 既定：画面 12、API 6）。
+   M02 で既存の入口を `model/` 経由に寄せるまでは二重に存在する。
+7. **敷地事実の項目**：→ M01 で §4.3 の表を既存項目込みで確定（`road_side`・`corner_lot`・`shadow_regulation` を追加、
+   `height_district`・`district_plan`・道路種別は unavailable 既定）。`web/zoning.py` の地区計画・高度利用地区の
+   警告を `district_plan` に流し込むのは M02 以降。
+8. **計画条件**：→ M01 で §4.4 の表を確定（`core_ratio`・`max_floors`・`gf_height` を追加）。
+9. **段の結果の保存**：→ M01 で `store/`（SQLite）を作成。`solver_version` の決め方は M02。
 10. **依存の向き**：`studies.py`（solver 層）が `skyfactor` を呼ぶのは可。`web/app.py` が solver を直接呼ぶ
     （`api/` 層がない）。`tools/` はない。
 
