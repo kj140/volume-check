@@ -46,7 +46,7 @@ web/app.py（FastAPI。法規ロジックなし。solve()/draw() を呼ぶだけ
 web/app.py ─→ solver, studies, skyfactor, drawer, models, constants, web/svg_*, web/zoning, web/geo
 studies.py ─→ solver, skyfactor, models, constants
 skyfactor.py ─→ solver(road_setback/neighbor_setback), geometry, models, constants, numpy
-solver.py ─→ geometry, models, constants
+solver/__init__.py（M02 で solver.py から移動。中身は同じ） ─→ geometry, models, constants
 models.py ─→ geometry, constants
 geometry.py ─→ shapely, numpy（shapely 依存はここだけ）
 drawer.py ─→ section, plan, models, constants, ezdxf
@@ -245,6 +245,24 @@ solver・既存の入出力は無変更。回帰テスト全件通過。
 - `requirements.txt` に `pydantic==2.13.5` を明示（fastapi 経由で同じ版が入っていた）。
 - 決めたことは `docs/decisions/0003-m01-data-model.md`。`docs/architecture.md` §4.1・4.3・4.4・4.5 を更新。
 
+### M02 で追加したもの（2026-09-27）
+
+既存の算定関数の中身は無変更（`solver.py` は `solver/__init__.py` へ移動しただけで中身は同じ。
+`tests/test_m02_volume_stage.py` が `m00-baseline` の内容と照合する）。回帰テスト全件通過。
+
+- `solver/volume/stage.py`：`run_volume_stage(scheme) -> StageResult`。既存の `solve()` と
+  `skyfactor.evaluate()` を `model.legacy.to_legacy_input` 経由で呼ぶ。
+- `solver/volume/rules.py`：既存の適用規定（label）→ `rule_id`、既存の注記 → 未考慮事項／伝達事項
+  の対応表。表にない出力が出たら止める。
+- `model/stages/volume.py`：ボリュームの段の結果の型（`VolumeStageData`）。既存の結果の項目を捨てずに持つ。
+- `api/stages.py`：段の実行とキャッシュ（`solver_version` ＝ パッケージの版 ＋ `constants.py` のハッシュ）、
+  複数案（`generate_variants`。子案 `created_by="batch"`、順位は label の先頭2桁）。
+- `api/routes.py`・`api/app.py`：案と段の API。**公開中の Web アプリには載せず**、`python -m api` で
+  127.0.0.1:8791 だけで待ち受ける（決定 0005）。保存先は `VOLUME_CHECK_DB`（既定 `.data/schemes.sqlite3`）。
+- `tests/test_m02_volume_stage.py`（72 件）。依存の向き（solver → api/store/data/web/tools を import しない、
+  model → solver を import しない）もここで検査する。
+- 決めたことは `docs/decisions/0005-m02-volume-stage.md`。
+
 ## 10. `docs/architecture.md` との対応表（現在の場所 → 目標の場所）
 
 | 現在 | 目標（architecture.md §3） | 備考 |
@@ -253,9 +271,9 @@ solver・既存の入出力は無変更。回帰テスト全件通過。
 | `models.py`（入力 dataclass） | `model/`（SiteFacts / PlanConditions） | M01 で `model/types.py` を追加。既存 dataclass との橋渡しは `model/legacy.py`。M02 で算定を包む |
 | `models.py`（VolumeResult / FloorResult） | `solver/volume/`（段の結果の型）＋ `model/`（StageResult への包み） | applied_rules / notes の形が違う（下記） |
 | `geometry.py` | `solver/volume/geometry.py` | |
-| `solver.py` | `solver/volume/` | |
+| `solver.py` → `solver/__init__.py`（M02 で移動） | `solver/volume/` | M02 で `solver/volume/stage.py` が包む |
 | `skyfactor.py` | `solver/volume/` | |
-| `studies.py` | `api/`（複数案＝親案から子案を並べて作る操作）＋ `solver/volume/` | 現在は solver 層に総当たりと天空率の付与が同居 |
+| `studies.py` | `api/`（複数案＝親案から子案を並べて作る操作）＋ `solver/volume/` | M02 で `api/stages.generate_variants` が子案として保存する。総当たり自体は studies.py のまま |
 | `section.py` / `plan.py` | `drawing/model/` | DXF と SVG が共有する幾何 |
 | `drawer.py` | `drawing/export/dxf.py`、`LAYERS` → `drawing/layers.py` | |
 | `web/svg_*.py` | `drawing/export/svg.py`（または `web/`） | |
@@ -267,7 +285,8 @@ solver・既存の入出力は無変更。回帰テスト全件通過。
 | `docs/HANDOFF.md` / `docs/PROJECT_INSTRUCTIONS.md` | （目標構成に該当なし） | 経緯の記録として残す |
 | `tests/*.py` | `tests/` | |
 | `model/`, `store/`（M01 で作成） | `model/`, `store/` | |
-| （なし） | `tools/`, `api/`, `data/`, `drawing/model/`, `solver/{estimate,core,grid,site}` | 未作成 |
+| `api/`, `solver/volume/`, `model/stages/`（M02 で作成） | 同じ | |
+| （なし） | `tools/`, `data/`, `drawing/model/`, `solver/{law,estimate,core,grid,site}` | 未作成 |
 
 ## 11. `docs/architecture.md` と食い違う点・気づいた懸念（修正はしない）
 
@@ -289,11 +308,17 @@ solver・既存の入出力は無変更。回帰テスト全件通過。
    `height_district`・`district_plan`・道路種別は unavailable 既定）。`web/zoning.py` の地区計画・高度利用地区の
    警告を `district_plan` に流し込むのは M02 以降。
 8. **計画条件**：→ M01 で §4.4 の表を確定（`core_ratio`・`max_floors`・`gf_height` を追加）。
-9. **段の結果の保存**：→ M01 で `store/`（SQLite）を作成。`solver_version` の決め方は M02。
+9. **段の結果の保存**：→ M01 で `store/`（SQLite）を作成。M02 で `solver_version` を決めた（決定 0005）。
 10. **依存の向き**：`studies.py`（solver 層）が `skyfactor` を呼ぶのは可。`web/app.py` が solver を直接呼ぶ
     （`api/` 層がない）。`tools/` はない。
 
 ### 懸念・不一致（記録のみ）
+
+- **（M02 で発見）既存の注記のうち2つが出ることがない。** `solver._record_applied_rules` は、建蔽率の
+  絞り込み量を求める**前**に呼ばれるため、「建蔽率上限に収めるため全階を一律 …m 内側に絞り込み」の条件
+  （`bcr_inset_mm > 0`）が常に偽になる。また「北側斜線は適用なしとして算定（日影規制の指定は…）」は、
+  その条件が直前の日影規制の分岐と同じ場合にしか成り立たず、到達しない。M02 では算定の中身を変えないため
+  記録のみ。対応表（`solver/volume/rules.py`）には伝達事項として載せてある。
 
 - `drawer.DISCLAIMER` と `web/app.py` の `description`、`main.py` の argparse 説明が「矩形敷地のみ」
   「天空率…未考慮」のまま。任意形状・天空率に対応した現状と合っていない（図面に印字される）。

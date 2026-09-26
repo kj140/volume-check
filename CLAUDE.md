@@ -57,8 +57,9 @@
 
 ## 現在のコードの約束（移行前の構成。M00 で `docs/current_state.md` に記録し、移行のマイルストーンで目標構成に寄せる）
 
-- 斜線の式は `solver.py` の `road_setback` / `neighbor_setback` / `north_setback` が唯一の定義。`skyfactor.py` もこれを使う。
-- shapely への依存は `geometry.py` だけ。`solver.py` は `geometry` 経由で幾何を扱う。
+- 斜線の式は `solver/__init__.py`（M02 で `solver.py` から移動）の `road_setback` / `neighbor_setback` / `north_setback` が唯一の定義。`skyfactor.py` もこれを使う。
+- shapely への依存は `geometry.py` だけ。`solver/` は `geometry` 経由で幾何を扱う。
+- 案と段の API は `api/`（`python -m api`、127.0.0.1:8791）。公開中の `web/app.py` には載せない（決定 0005）。
 - 断面・平面の幾何は `section.py` / `plan.py` が唯一の定義で、DXF と SVG が共有する。
 - `web/app.py` に法規ロジックを置かない。solve() と draw() を呼ぶだけ。
 - 外壁後退と斜線後退は足さず `max` を取り、建蔽率の絞り込みはその上に足す（`geometry.buildable_region`）。

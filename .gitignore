@@ -43,3 +43,6 @@ web/data/*.json
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 案の保存先（api/。ローカル専用）
+.data/
