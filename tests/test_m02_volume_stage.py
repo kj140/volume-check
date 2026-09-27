@@ -124,7 +124,9 @@ def test_every_note_lands_in_exactly_one_place(case, store):
     scheme, _ = _root_scheme(store, case)
     notes = regress.load_json(case / "result.json")["volume"]["notes"]
     result = stages.run_stage(store, scheme.id, "volume")
-    placed = [n.note for n in result.not_considered] + list(result.warnings)
+    from_notes = [n.note for n in result.not_considered
+                  if not n.item.startswith(("高度地区", "地区計画"))]
+    placed = from_notes + list(result.warnings)
     assert sorted(placed) == sorted(notes)
 
 
@@ -148,7 +150,9 @@ NOTE_TABLE = [
     ("第一種低層住居専用地域 の絶対高さ制限は都市計画で10.0m または 12.0mのいずれかに定められる。"
      "入力がないため既定の10m で試算", "warning", "unknown"),
     ("建蔽率上限に収めるため全階を一律 0.764m 内側に絞り込み", "warning", "unknown"),
-    ("北側斜線は適用なしとして算定（日影規制の指定は入力で切り替えられます）", "warning", "unknown"),
+    ("日影規制（法56条の2）は未実装。対象区域は条例で指定され、対象区域外の建築物でも"
+     "対象区域に日影を生じさせる場合は規制を受ける（同条4項）。日影規制がかかる場合、"
+     "この結果は実際より大きく出る", "not_considered", "larger_than_actual"),
 ]
 
 
@@ -385,7 +389,7 @@ def test_model_does_not_import_the_solver_or_outer_layers():
 
 # (今の場所, M00 時点の場所)。solver.py は solver/__init__.py へ移した（中身は同じ）。
 UNCHANGED = [
-    ("solver/__init__.py", "solver.py"),
+    # solver は決定 0006 で注記の出し方を直した。直した後の内容をタグ m02-notes で固定する
     ("geometry.py", "geometry.py"),
     ("skyfactor.py", "skyfactor.py"),
     ("studies.py", "studies.py"),
@@ -395,11 +399,13 @@ UNCHANGED = [
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git がない環境")
-@pytest.mark.parametrize("now,then", UNCHANGED)
-def test_existing_calculation_code_is_unchanged(now, then):
+@pytest.mark.parametrize("now,then,tag",
+                         [(a, b, "m00-baseline") for a, b in UNCHANGED]
+                         + [("solver/__init__.py", "solver/__init__.py", "m02-notes")])
+def test_existing_calculation_code_is_unchanged(now, then, tag):
     try:
-        old = subprocess.run(["git", "show", f"m00-baseline:{then}"], cwd=ROOT,
+        old = subprocess.run(["git", "show", f"{tag}:{then}"], cwd=ROOT,
                              capture_output=True, check=True).stdout
     except subprocess.CalledProcessError:
-        pytest.skip("m00-baseline タグが見つからない")
+        pytest.skip(f"{tag} タグが見つからない")
     assert (ROOT / now).read_bytes().replace(b"\r\n", b"\n") == old.replace(b"\r\n", b"\n")

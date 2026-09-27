@@ -158,6 +158,10 @@ def solve(inp: VolumeInput) -> VolumeResult:
         _area_at, max_building_area_mm2, math.sqrt(site.area_mm2) / 2.0 + 1.0
     )
     result.bcr_inset_mm = bcr_inset_mm
+    if bcr_inset_mm > _LENGTH_EPS_MM:
+        result.notes.append(
+            f"建蔽率上限に収めるため全階を一律 {bcr_inset_mm / C.M_TO_MM:.3f}m 内側に絞り込み"
+        )
 
     # --- 1階から順に積み上げる -------------------------------------------------
     level_mm = 0.0
@@ -529,14 +533,14 @@ def _record_applied_rules(r: VolumeResult) -> None:
             "外しているが、日影規制そのものは本ツールでは未検証。"
             "この結果は日影規制で削られる前の形であり、安全側ではない"
         )
-    elif r.north_slant_start_mm is None and district in C.NORTH_SLANT and             C.NORTH_SLANT[district] is not None:
-        r.notes.append("北側斜線は適用なしとして算定（日影規制の指定は入力で切り替えられます）")
+    else:
+        r.notes.append(
+            "日影規制（法56条の2）は未実装。対象区域は条例で指定され、対象区域外の建築物でも"
+            "対象区域に日影を生じさせる場合は規制を受ける（同条4項）。日影規制がかかる場合、"
+            "この結果は実際より大きく出る"
+        )
     if district == C.UseDistrict.UNDESIGNATED:
         r.notes.append(
             "用途地域の指定のない区域は法の原則値（道路斜線1.5・容積率係数6/10）で試算。"
             "特定行政庁が別の値を指定している場合は再計算が必要"
-        )
-    if r.bcr_inset_mm > _LENGTH_EPS_MM:
-        r.notes.append(
-            f"建蔽率上限に収めるため全階を一律 {r.bcr_inset_mm / C.M_TO_MM:.3f}m 内側に絞り込み"
         )

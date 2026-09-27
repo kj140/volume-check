@@ -12,6 +12,7 @@
   - 5章「未考慮（実際より小さく出る）」：法56条4項・令132条・法52条9項 → smaller_than_actual
   - 5章「未考慮（床面積＝容積対象。実際より厳しい）」：容積率不算入 → smaller_than_actual
   - 5章「安全側にならない」：日影規制 → larger_than_actual
+  - 日影規制の未実装を常に出す注記（決定 0006）も larger_than_actual
 - 法規の数値は持たない。ここにあるのは既存の出力の文字列と、それを分類するための表だけ。
 """
 
@@ -81,12 +82,13 @@ NOTE_MAPS: tuple[NoteMap, ...] = (
             "建蔽率の緩和（法53条3項）の未指定", "unknown"),
     NoteMap(r"^【要注意】日影規制", "not_considered",
             "日影規制（法56条の2・別表第四）", "larger_than_actual"),
+    NoteMap(r"^日影規制（法56条の2）は未実装", "not_considered",
+            "日影規制（法56条の2・別表第四）", "larger_than_actual"),
     NoteMap(r"^用途地域の指定のない区域は法の原則値", "not_considered",
             "特定行政庁が定める値（用途地域の指定のない区域）", "unknown"),
     NoteMap(r"^外壁後退と斜線による後退は、足し合わせず大きいほうを適用", "warning"),
     NoteMap(r"^.+ の絶対高さ制限は都市計画で", "warning"),
     NoteMap(r"^建蔽率上限に収めるため全階を一律", "warning"),
-    NoteMap(r"^北側斜線は適用なしとして算定", "warning"),
 )
 
 

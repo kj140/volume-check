@@ -223,6 +223,29 @@ def _notes(r: VolumeResult) -> tuple[list[NotConsidered], list[str]]:
     return not_considered, warnings
 
 
+def _fact_gaps(scheme: Scheme) -> list[NotConsidered]:
+    """算定に入っていない敷地事実（決定 0006）。
+
+    高度地区・地区計画は、既存の算定が扱わない。不明なら「未確認」、入力があっても
+    「算定に未反映」として出す。向きは unknown（最高限度の高度地区なら実際より大きく出るが、
+    最低限度のもの・緩和型の地区計画もあるため一方向に決められない）。
+    """
+    facts = scheme.site_facts
+    out: list[NotConsidered] = []
+    for name, label in (("height_district", "高度地区"), ("district_plan", "地区計画")):
+        fact = getattr(facts, name)
+        if fact.available:
+            note = (f"{label}「{fact.value}」の入力はあるが、算定には反映していない"
+                    f"（高さの制限は絶対高さ制限の欄の値だけを使う）")
+            item = f"{label}（算定に未反映）"
+        else:
+            note = (f"{label}の指定を確認していない。指定があれば結果が変わる"
+                    f"（高さの最高限度などの制限なら実際より大きく出る）")
+            item = f"{label}（未確認）"
+        out.append(NotConsidered(item=item, direction="unknown", note=note))
+    return out
+
+
 def _defaults_used(scheme: Scheme) -> list[str]:
     """既定値で進めた項目のパス。計画条件の既定と、既存コードが黙って使う敷地事実の既定。"""
     used = list(scheme.plan_conditions.defaults_used())
@@ -257,6 +280,7 @@ def run_volume_stage(scheme: Scheme, solver_version: str | None = None) -> Stage
     sky = skyfactor.evaluate(result) if result.floor_count > 0 else None
     data = _volume_data(result, sky)
     not_considered, warnings = _notes(result)
+    not_considered.extend(_fact_gaps(scheme))
 
     status = "ok"
     if result.floor_count == 0:
